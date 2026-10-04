@@ -1,26 +1,22 @@
 """
 Core longitudinal/lateral dynamics limits used by the racing-line speed solver.
 
-Normal load:
-    N(v) = m*g + F_downforce(v)
+Phase 10a: front/rear normal loads (static + aero + long transfer) and
+drivetrain-specific drive force from the torque curve.
 
-Friction-circle grip (Phase 7), with optional load sensitivity:
-    mu(N)    = mu0 * (N_ref / N)^lambda
-    F_max(v) = mu(N) * N
-    N_ref    = m*g
+    N_f, N_r  = static split + Cop*downforce ± m a_x h / L
+    F_max,i   = u_max * mu(N_i) * N_i     (per axle, load sensitive)
+    F_y,i     = (N_i / N) * m v^2 |kappa|  (lateral split by load)
+    leftover  = sqrt(F_max,i^2 - F_y,i^2)
 
-Combined slip: Fx and Fy share F_max. After spending F_y = m v^2 |kappa| on
-the corner, remaining drive/brake force is sqrt(F_max^2 - F_y^2). Driving
-modes cap the circle at u_max * F_max (Attack = 1, Race < 1, Safe smaller).
+Drive uses only the driven axle(s). Brakes use brake_bias_front vs leftover.
 
-Cornering speed at curvature kappa, lambda = 0, u_max = 1, no downforce:
-    v_max = sqrt(mu0 * g / |kappa|)
-which is the closed-form check used in tests.
+Cornering with lambda = 0 still matches v = sqrt(mu g r) at 1g, no aero.
 """
 
 import numpy as np
 from src.vehicle.aero import drag_force, downforce, RHO_AIR_SEA_LEVEL
-from src.vehicle.tires import combined_slip_fx
+from src.vehicle.powertrain import max_engine_drive_force
 
 G = 9.81  # m/s^2
 
@@ -31,14 +27,122 @@ def normal_load(vehicle, v, rho=RHO_AIR_SEA_LEVEL):
 
 
 def reference_load(vehicle):
-    """Static weight used as N_ref for load sensitivity (N)."""
+    """Static weight used as total N_ref (N)."""
     return vehicle.mass * G
 
 
-def grip_force(vehicle, tire, v, rho=RHO_AIR_SEA_LEVEL, u_max=1.0):
-    """Friction-circle radius (N) at speed v, including load sensitivity."""
-    n = normal_load(vehicle, v, rho=rho)
-    return float(u_max) * tire.max_force(n, n_ref=reference_load(vehicle))
+def static_axle_refs(vehicle):
+    w = float(np.clip(vehicle.weight_dist_front, 0.05, 0.95))
+    n = vehicle.mass * G
+    return w * n, (1.0 - w) * n
+
+
+def axle_loads(vehicle, v, a_lon=0.0, rho=RHO_AIR_SEA_LEVEL):
+    """
+    Front and rear normal loads (N).
+
+    a_lon > 0 is acceleration (load to the rear). a_lon < 0 is braking.
+    """
+    n_static = vehicle.mass * G
+    w = vehicle.weight_dist_front
+    if w < 0.05:
+        w = 0.05
+    elif w > 0.95:
+        w = 0.95
+    cop = vehicle.center_of_pressure
+    if cop < 0.05:
+        cop = 0.05
+    elif cop > 0.95:
+        cop = 0.95
+    L = vehicle.wheelbase if vehicle.wheelbase > 0.5 else 0.5
+    h = vehicle.cg_height if vehicle.cg_height > 0.05 else 0.05
+    aero_k = 0.5 * rho * vehicle.downforce_coefficient * vehicle.frontal_area
+
+    if isinstance(v, np.ndarray) and v.ndim > 0:
+        a_lon = np.asarray(a_lon, dtype=float)
+        n_aero = aero_k * v * v
+        n_f = w * n_static + cop * n_aero
+        n_r = (1.0 - w) * n_static + (1.0 - cop) * n_aero
+        transfer = vehicle.mass * a_lon * h / L
+        return np.maximum(n_f - transfer, 0.0), np.maximum(n_r + transfer, 0.0)
+
+    v = float(v)
+    a_lon = float(a_lon)
+    n_aero = aero_k * v * v
+    transfer = vehicle.mass * a_lon * h / L
+    n_f = w * n_static + cop * n_aero - transfer
+    n_r = (1.0 - w) * n_static + (1.0 - cop) * n_aero + transfer
+    if n_f < 0.0:
+        n_f = 0.0
+    if n_r < 0.0:
+        n_r = 0.0
+    return n_f, n_r
+
+
+def _axle_fmax(tire, n, n_ref, u_max):
+    if n <= 0.0:
+        return 0.0
+    mu0 = tire.mu * tire.grip_modifier
+    lam = tire.load_sensitivity
+    if abs(lam) < 1e-12:
+        return u_max * mu0 * n
+    mu = mu0 * (n_ref / n) ** lam if n_ref > 1.0 else mu0
+    return u_max * mu * n
+
+
+def axle_grip(vehicle, tire, v, a_lon=0.0, rho=RHO_AIR_SEA_LEVEL, u_max=1.0):
+    """Per-axle friction-circle radii (N) at the current load."""
+    n_f, n_r = axle_loads(vehicle, v, a_lon=a_lon, rho=rho)
+    nref_f, nref_r = static_axle_refs(vehicle)
+    u_max = float(u_max)
+    if isinstance(n_f, np.ndarray) and n_f.ndim > 0:
+        mu0 = tire.effective_mu()
+        lam = tire.load_sensitivity
+        n_f = np.maximum(n_f, 0.0)
+        n_r = np.maximum(n_r, 0.0)
+        if abs(lam) < 1e-12:
+            return u_max * mu0 * n_f, u_max * mu0 * n_r, n_f, n_r
+        mu_f = mu0 * (nref_f / np.maximum(n_f, 1.0)) ** lam
+        mu_r = mu0 * (nref_r / np.maximum(n_r, 1.0)) ** lam
+        return u_max * mu_f * n_f, u_max * mu_r * n_r, n_f, n_r
+    return (
+        _axle_fmax(tire, n_f, nref_f, u_max),
+        _axle_fmax(tire, n_r, nref_r, u_max),
+        n_f,
+        n_r,
+    )
+
+
+def grip_force(vehicle, tire, v, rho=RHO_AIR_SEA_LEVEL, u_max=1.0, a_lon=0.0):
+    """Total friction-circle radius (N), sum of axles."""
+    f_f, f_r, _nf, _nr = axle_grip(vehicle, tire, v, a_lon=a_lon, rho=rho, u_max=u_max)
+    return f_f + f_r
+
+
+def _driven_fx_cap(vehicle, fx_f, fx_r, f_eng):
+    kind = str(vehicle.drivetrain).upper()
+    if kind == "FWD":
+        return min(f_eng, fx_f)
+    if kind == "AWD":
+        split = float(np.clip(vehicle.awd_torque_front, 0.0, 1.0))
+        return min(f_eng * split, fx_f) + min(f_eng * (1.0 - split), fx_r)
+    return min(f_eng, fx_r)
+
+
+def _leftover_axles(vehicle, tire, v, a_lon, curvature, rho, u_max):
+    f_f, f_r, n_f, n_r = axle_grip(
+        vehicle, tire, v, a_lon=a_lon, rho=rho, u_max=u_max,
+    )
+    f_lat = vehicle.mass * v * v * abs(curvature)
+    n_tot = n_f + n_r
+    if n_tot < 1.0:
+        n_tot = 1.0
+    fy_f = f_lat * n_f / n_tot
+    fy_r = f_lat * n_r / n_tot
+    def leftover(fmax, fy):
+        rem = fmax * fmax - fy * fy
+        return rem ** 0.5 if rem > 0.0 else 0.0
+    return leftover(f_f, fy_f), leftover(f_r, fy_r)
 
 
 def _corner_speed_constant_mu(k, vehicle, tire, rho, u_max):
@@ -59,7 +163,7 @@ def corner_speed_limit(curvature, vehicle, tire, rho=RHO_AIR_SEA_LEVEL,
                        u_max=1.0):
     """
     Maximum speed (m/s) at which the car can hold a corner of given curvature
-    (1/m) at utilization u_max of the friction circle (pure lateral).
+    (1/m) at utilization u_max of the friction circle (pure lateral, a_x = 0).
     """
     k = abs(curvature)
     if k < 1e-9:
@@ -70,15 +174,14 @@ def corner_speed_limit(curvature, vehicle, tire, rho=RHO_AIR_SEA_LEVEL,
         return _corner_speed_constant_mu(k, vehicle, tire, rho, u_max)
 
     m = vehicle.mass
-    n_ref = reference_load(vehicle)
-    c = 0.5 * rho * vehicle.downforce_coefficient * vehicle.frontal_area
-    mu0 = u_max * tire.effective_mu()
 
     def residual(vs):
         vs = max(vs, 0.0)
-        n = n_ref + c * vs
-        mu = mu0 * (n_ref / max(n, 1.0)) ** tire.load_sensitivity
-        return m * vs * k - mu * max(n, 0.0)
+        v = np.sqrt(vs)
+        f_f, f_r, _nf, _nr = axle_grip(
+            vehicle, tire, v, a_lon=0.0, rho=rho, u_max=u_max,
+        )
+        return m * vs * k - (f_f + f_r)
 
     vs_hi = vehicle.top_speed ** 2
     r0 = residual(0.0)
@@ -100,25 +203,36 @@ def corner_speed_limit(curvature, vehicle, tire, rho=RHO_AIR_SEA_LEVEL,
 def max_traction_accel(vehicle, tire, v, rho=RHO_AIR_SEA_LEVEL,
                        curvature=0.0, u_max=1.0):
     """Maximum forward acceleration (m/s^2) available at speed v (v > 0)."""
-    v_safe = max(v, 1.0)
-    f_power_limited = vehicle.max_power / v_safe
-    f_drive = min(f_power_limited, vehicle.max_traction_force)
-
-    f_max = grip_force(vehicle, tire, v, rho=rho, u_max=u_max)
-    f_lat = vehicle.mass * v * v * abs(curvature)
-    f_drive = min(f_drive, combined_slip_fx(f_max, f_lat))
-
+    f_eng = max_engine_drive_force(vehicle, v)
     f_drag = drag_force(vehicle, v, rho=rho)
-    f_net = f_drive - f_drag
-    return max(f_net, 0.0) / vehicle.mass
+    a = 0.0
+    for _ in range(3):
+        fx_f, fx_r = _leftover_axles(
+            vehicle, tire, v, a, curvature, rho, u_max,
+        )
+        f_drive = _driven_fx_cap(vehicle, fx_f, fx_r, f_eng)
+        a_new = max(f_drive - f_drag, 0.0) / vehicle.mass
+        if abs(a_new - a) < 1e-4:
+            return a_new
+        a = 0.5 * a + 0.5 * a_new
+    return a
 
 
 def max_braking_decel(vehicle, tire, v, rho=RHO_AIR_SEA_LEVEL,
                       curvature=0.0, u_max=1.0):
     """Maximum braking deceleration magnitude (m/s^2) available at speed v."""
-    f_max = grip_force(vehicle, tire, v, rho=rho, u_max=u_max)
-    f_lat = vehicle.mass * v * v * abs(curvature)
-    f_brake = min(combined_slip_fx(f_max, f_lat), vehicle.max_brake_force)
     f_drag = drag_force(vehicle, v, rho=rho)
-    f_net = f_brake + f_drag
-    return f_net / vehicle.mass
+    bias = float(np.clip(vehicle.brake_bias_front, 0.05, 0.95))
+    f_hyd_f = bias * vehicle.max_brake_force
+    f_hyd_r = (1.0 - bias) * vehicle.max_brake_force
+    a = 0.0
+    for _ in range(3):
+        fx_f, fx_r = _leftover_axles(
+            vehicle, tire, v, -a, curvature, rho, u_max,
+        )
+        f_brake = min(f_hyd_f, fx_f) + min(f_hyd_r, fx_r)
+        a_new = (f_brake + f_drag) / vehicle.mass
+        if abs(a_new - a) < 1e-4:
+            return a_new
+        a = 0.5 * a + 0.5 * a_new
+    return a

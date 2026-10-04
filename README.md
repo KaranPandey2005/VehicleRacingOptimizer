@@ -5,7 +5,7 @@ lap time for a given track, vehicle, tire grip, and driving mode. The central
 engineering goal of this project is that the result should depend on **which
 car** you simulate, not just the track shape.
 
-> **Status:** Phases 1–8 (geometry through a desktop GUI).
+> **Status:** Phases 1–8 plus Phase 10a physics (torque curve + axle split).
 > Nothing here is validated against a real vehicle or track unless explicitly
 > stated — treat all numbers as illustrative engineering-simulation output,
 > not ground truth.
@@ -15,10 +15,11 @@ car** you simulate, not just the track shape.
 - Generates a closed-loop, mathematically exact 2D track (rounded rectangle
   with 4 independently-sized corners) from analytic geometry — no numerical
   drift, verified to close to ~1e-13 m — and can load Spa from a centerline CSV.
-- Models a configurable vehicle (mass, power, drivetrain, drag, downforce,
-  brakes, tire grip) loaded from JSON.
-- Computes speed-dependent tire grip (friction circle with combined slip and
-  load sensitivity) and aerodynamic downforce/drag.
+- Models a configurable vehicle (mass, powertrain, drivetrain, drag, downforce,
+  brakes, tire grip) loaded from JSON. Drive force comes from a torque curve
+  × gears; FWD/RWD/AWD and brake bias use front/rear load transfer.
+- Computes speed-dependent tire grip (per-axle friction circle with combined
+  slip and load sensitivity) and aerodynamic downforce/drag.
 - Solves a vehicle-specific speed profile along a line using the standard
   **quasi-steady-state forward-backward pass**.
 - Optimizes a vehicle-specific racing line (`line_mode="optimized"`).
@@ -29,8 +30,8 @@ car** you simulate, not just the track shape.
 - Desktop GUI (`python3 -m app.gui`) to pick car / track / mode / weather / line
   and run the same Simulator without the CLI.
 
-**Deferred:** Pacejka tires, torque curves, thermal/wear, elevation,
-validation against real laps (Phase 9). Physics upgrades are Phase 10+.
+**Deferred:** Pacejka tires, thermal/wear, elevation, a true wet line,
+validation against real laps (Phase 9). Next physics: Pacejka / bicycle.
 
 ## Quick start
 
@@ -58,6 +59,7 @@ VehicleRacingOptimizer/
 │   │   └── track.py         # Track class: centerline, boundaries, curvature queries
 │   ├── vehicle/
 │   │   ├── vehicle.py       # Vehicle config dataclass, JSON load/save
+│   │   ├── powertrain.py    # torque curve × gears (Phase 10a)
 │   │   ├── tires.py         # friction-circle + load sensitivity (Phase 7)
 │   │   └── aero.py          # drag / downforce (quadratic-in-speed)
 │   ├── weather/
@@ -100,6 +102,13 @@ error — which is why a segment list designed to close (e.g. 4 arcs of +90°
 precision. The V1 default track is a **rounded rectangle with 4
 independently-sized corner radii**, chosen specifically so different
 vehicles will visibly prefer different speeds through each corner.
+
+**Powertrain (Phase 10a)** (`vehicle/powertrain.py`, `physics/dynamics.py`):
+drive force is `T(rpm) × gear × final × η / r` in the best legal gear, then
+capped by the *driven* axle's leftover friction circle. Front/rear loads
+include static split, aero at the center of pressure, and `m a_x h / L`
+transfer. FWD/RWD/AWD and `brake_bias_front` now change the lap, not just
+the JSON label.
 
 **Grip & aero** (`vehicle/tires.py`, `vehicle/aero.py`):
 ```
@@ -161,10 +170,10 @@ worse. This is not a crash-probability or tire-temperature model.
 | 6 | Weather (wire up `weather.py`) | ✅ Done (grip lookup + air density) |
 | 7 | Safety model + friction-circle / load-sensitive tires | ✅ Done |
 | 8 | PySide6 GUI | ✅ Done |
-| 9 | Validation against real data / other simulators | Planned |
+| 9 | Validation against real data / other simulators | Planned (after more physics) |
+| 10a | Torque curve + F/R split / load transfer | ✅ Done |
 
-Later physics (not a numbered phase yet): Pacejka tires, torque curve,
-thermal/wear, elevation, a true wet racing line.
+Later physics: Pacejka / bicycle, thermal/wear, elevation, a true wet racing line.
 
 ## Testing
 

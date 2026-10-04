@@ -11,11 +11,12 @@ Combined slip (GG circle): longitudinal and lateral force share one budget
 
     F_x^2 + F_y^2  <=  (u_max * F_max)^2
 
-Deferred (not in this phase — needs slip states / a bicycle or similar):
+Deferred (not in this module — needs slip states / a bicycle or similar):
   - Pacejka / Magic Formula (Fy vs slip angle, Fx vs slip ratio)
   - Temperature, wear, compound, camber, inflation
-  - Front/rear split and longitudinal/lateral load transfer
+  - Front/rear split, long load transfer, and a torque×gear powertrain (Phase 10a)
   - Explicit combined-slip *curves* (this file only uses the circular envelope)
+  - Pacejka / Magic Formula, temperature, wear, compound, camber, inflation
 """
 
 from dataclasses import dataclass

@@ -21,7 +21,7 @@ probability, or a thermal tire-life model.
 from dataclasses import dataclass
 import numpy as np
 
-from src.physics.dynamics import G, normal_load
+from src.physics.dynamics import axle_grip
 from src.vehicle.aero import RHO_AIR_SEA_LEVEL
 from src.vehicle.tires import friction_utilization
 
@@ -56,17 +56,11 @@ def forces_along_profile(profile, vehicle, tire, rho=RHO_AIR_SEA_LEVEL):
     v = np.asarray(profile["v"], dtype=float)
     fx = vehicle.mass * tel["a_lon"]
     fy = vehicle.mass * tel["a_lat"]
-    n_ref = vehicle.mass * G
-    n_load = normal_load(vehicle, v, rho=rho)
-    # Vectorized F_max. TireModel.max_force is scalar; do it in numpy here.
-    n_pos = np.maximum(n_load, 0.0)
-    mu0 = tire.effective_mu()
-    lam = tire.load_sensitivity
-    if abs(lam) < 1e-12:
-        f_max = mu0 * n_pos
-    else:
-        mu = mu0 * (n_ref / np.maximum(n_load, 1.0)) ** lam
-        f_max = mu * n_pos
+    f_f, f_r, n_f, n_r = axle_grip(
+        vehicle, tire, v, a_lon=tel["a_lon"], rho=rho, u_max=1.0,
+    )
+    f_max = f_f + f_r
+    n_load = n_f + n_r
     u = friction_utilization(fx, fy, f_max)
     return {
         "a_lon": tel["a_lon"],
