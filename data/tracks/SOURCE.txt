@@ -1,0 +1,7 @@
+spa.csv
+  Circuit de Spa-Francorchamps centerline (x_m, y_m, w_tr_right_m, w_tr_left_m).
+  Source: TUM FTM racetrack-database
+    https://github.com/TUMFTM/racetrack-database
+  Original GPS from OpenStreetMap, smoothed by TUM FTM.
+  License: GNU LGPL v3 (see that repository).
+  2D only — elevation (Eau Rouge / Raidillon) is not included.

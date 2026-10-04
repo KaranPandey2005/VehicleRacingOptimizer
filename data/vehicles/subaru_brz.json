@@ -1,0 +1,18 @@
+{
+  "name": "Subaru BRZ (2022+, unvalidated ballpark)",
+  "mass": 1275.0,
+  "wheelbase": 2.575,
+  "track_width": 1.52,
+  "cg_height": 0.50,
+  "weight_dist_front": 0.53,
+  "max_power": 170000.0,
+  "max_traction_force": 9500.0,
+  "drivetrain": "RWD",
+  "max_brake_force": 15000.0,
+  "frontal_area": 2.0,
+  "drag_coefficient": 0.28,
+  "downforce_coefficient": 0.0,
+  "center_of_pressure": 0.5,
+  "tire_mu": 1.15,
+  "top_speed": 63.0
+}
