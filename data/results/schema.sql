@@ -1,0 +1,22 @@
+CREATE TABLE IF NOT EXISTS runs (
+    id INTEGER PRIMARY KEY,
+    created_at TEXT NOT NULL,
+    vehicle_name TEXT,
+    track_name TEXT,
+    mode TEXT,
+    line_mode TEXT,
+    weather TEXT,
+    used_fallback INTEGER,
+    lap_time REAL,
+    objective REAL,
+    max_speed_kmh REAL,
+    min_speed_kmh REAL,
+    peak_lon_accel_g REAL,
+    peak_lon_decel_g REAL,
+    peak_lat_accel_g REAL,
+    mean_utilization REAL,
+    peak_utilization REAL,
+    u_max REAL,
+    wall_risk REAL,
+    tire_stress REAL
+);

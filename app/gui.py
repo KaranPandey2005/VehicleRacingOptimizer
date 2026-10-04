@@ -32,6 +32,7 @@ from app.session import (
     LINE_MODES, MODES, OUTPUT_DIR, TRACK_FACTORIES, WEATHER, SessionSpec,
     get_track, run_session, slow_run_warning, vehicle_files,
 )
+from src.simulation.results import save_run
 from src.visualization.track_plot import (
     list_corner_insets, plot_single_corner_inset, plot_speed_map,
     plot_telemetry, plot_track,
@@ -231,8 +232,10 @@ class MainWindow(QMainWindow):
         self._last_result = result
         self.summary.setPlainText(result.summary())
         self.save_btn.setEnabled(True)
+        run_id = save_run(result)
         self.statusBar().showMessage(
             f"{result.lap_time:.2f} s  ·  {result.mode}  ·  {result.line_mode}  ·  {result.weather}"
+            f"  ·  saved run #{run_id}"
         )
         self._draw_result(track, result)
         self._load_corners(track, result)

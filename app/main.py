@@ -23,6 +23,7 @@ from src.track.track import Track
 from src.vehicle.vehicle import Vehicle
 from src.vehicle.tires import TireModel
 from src.simulation.simulator import Simulator
+from src.simulation.results import save_run
 from src.optimization.racing_line import shaped_racing_line
 from src.visualization.track_plot import (
     plot_track, plot_speed_map, plot_telemetry, plot_line_comparison,
@@ -52,6 +53,7 @@ def main():
         tire = TireModel(mu=vehicle.tire_mu)
         sim = Simulator(track, vehicle, tire, mode="attack", line_mode="optimized")
         result = sim.run()
+        save_run(result)
         results.append(result)
         print(result.summary())
 
@@ -72,6 +74,7 @@ def main():
     for mode in ["attack", "race", "safe"]:
         sim = Simulator(track, vehicle, tire, mode=mode, line_mode="optimized")
         result = sim.run()
+        save_run(result)
         print(
             f"{mode:6s}: lap = {result.lap_time:.2f} s   J = {result.objective:.2f}  "
             f"u {result.telemetry['mean_utilization']:.2f}/{result.telemetry['peak_utilization']:.2f}  "
@@ -86,6 +89,7 @@ def main():
         wx = Weather(condition=cond)
         t = Simulator(track, vehicle, tire, mode="attack",
                       line_mode="optimized", weather=wx).run()
+        save_run(t)
         weather_results.append(t)
         print(f"{cond.value:4s}: lap time = {t.lap_time:.2f} s  "
               f"(grip x{wx.grip_modifier():.2f})")
@@ -106,10 +110,14 @@ def main():
     print("Phase 4 shaped is an outside-apex-outside heuristic; usually slower.")
     vehicle = Vehicle.from_json(os.path.join(data_dir, "subaru_brz.json"))
     tire = TireModel(mu=vehicle.tire_mu)
-    centerline_t = Simulator(track, vehicle, tire, mode="attack",
-                             line_mode="centerline").run().lap_time
-    shaped_t = Simulator(track, vehicle, tire, mode="attack",
-                         line_mode="shaped").run().lap_time
+    centerline = Simulator(track, vehicle, tire, mode="attack",
+                             line_mode="centerline").run()
+    save_run(centerline)
+    centerline_t = centerline.lap_time
+    shaped = Simulator(track, vehicle, tire, mode="attack",
+                         line_mode="shaped").run()
+    save_run(shaped)
+    shaped_t = shaped.lap_time
     opt_t = results[0].lap_time
     print(f"centerline: {centerline_t:.2f} s")
     print(f"shaped:     {shaped_t:.2f} s")

@@ -29,6 +29,8 @@ car** you simulate, not just the track shape.
 - Plots the track, a speed-colored racing line, and telemetry channels.
 - Desktop GUI (`python3 -m app.gui`) to pick car / track / mode / weather / line
   and run the same Simulator without the CLI.
+- Every completed lap (including unvalidated / fallback runs) appends one row
+  to `data/results/runs.db` (tracked in git).
 
 **Deferred:** Pacejka tires, thermal/wear, elevation, a true wet line,
 validation against real laps (Phase 9). Next physics: Pacejka / bicycle.
@@ -72,12 +74,14 @@ VehicleRacingOptimizer/
 │   │   ├── safety.py        # Phase 7 driving modes, wall risk, tire stress
 │   │   └── lap_time.py      # lap time integration + telemetry (g's)
 │   ├── simulation/
-│   │   └── simulator.py     # Simulator: ties track+vehicle+tire+mode together
+│   │   ├── simulator.py     # Simulator: ties track+vehicle+tire+mode together
+│   │   └── results.py       # append each completed lap to SQLite
 │   └── visualization/
 │       └── track_plot.py    # matplotlib: track layout, speed map, telemetry
 ├── data/
 │   ├── tracks/               # (reserved for imported/saved track JSON)
-│   └── vehicles/              # subaru_brz.json, honda_fit.json, fia_f3.json
+│   ├── vehicles/              # subaru_brz.json, honda_fit.json, fia_f3.json
+│   └── results/runs.db        # SQLite run log (one row per completed lap)
 ├── tests/                     # pytest suite (also runnable via tests/_run_all.py without pytest)
 └── app/
     ├── main.py                # CLI demo entry point
