@@ -176,8 +176,60 @@ worse. This is not a crash-probability or tire-temperature model.
 | 8 | PySide6 GUI | ✅ Done |
 | 9 | Validation against real data / other simulators | Planned (after more physics) |
 | 10a | Torque curve + F/R split / load transfer | ✅ Done |
+| 11 | Measured track from 2D LiDAR | Future goal |
 
 Later physics: Pacejka / bicycle, thermal/wear, elevation, a true wet racing line.
+
+### Phase 11: Measured track from 2D LiDAR
+
+Future goal. Not started. Not implemented.
+
+This phase is **measured track in, optimized line out**. It is not Phase 9
+(validation against real laps), not Phase 10a (torque curve and axle split,
+already done), and not Pacejka, thermal/wear, elevation, or a wet line.
+
+**What the sensor gives.** A 2D spinning LiDAR (RPLidar or LD06 class; the
+lab unit is only about 72 points per spin and is too coarse for a clean
+wall) sits level in the middle of a physical loop, at wall height. One
+revolution returns a ring of points. Those points are the **walls**, not
+the racing line. A single flat scan does not see banking or curbs.
+
+**How the scan becomes a track this repo already understands.** Tracks are
+a closed sequence of `Straight(length)` and `Arc(radius, signed_angle)`
+segments, integrated analytically, which is why formula tracks close to
+about 1e-13 m. A raw scan will not close that tightly because of noise.
+The future work is to turn the ring into a centerline, simplify it to a
+few straights and arcs, and **force geometric closure** so `Track` can
+load it the same way it loads a formula track or the Spa centerline CSV.
+
+- If only one edge was taped, offset that edge by half the track width
+  to get the centerline.
+- If both walls were scanned, the centerline is the middle.
+
+`data/tracks/` is the reserved place for an imported track later. There
+is no LiDAR loader yet. When one exists, it should accept a closed
+`Straight`/`Arc` list (or an equivalent closed centerline table in the
+same spirit as `data/tracks/spa.csv`: `x_m`, `y_m`, and left/right
+half-widths) after the scan has already been simplified and forced
+closed — not a raw polar ring of noisy hits.
+
+**How the optimizer runs on it.** Feed that closed centerline into the
+existing `Simulator`. Cars stay the current JSON vehicles (Subaru BRZ,
+Honda Fit, FIA F3). Modes stay Attack / Race / Safe (friction-circle
+caps 1.00 / 0.92 / 0.75). The racing line uses the existing solver:
+greedy outside-apex-outside, then the CasADi/IPOPT polish **only when
+the fitted track has 8 corners or fewer**. A wiggly scan that is not
+simplified past 8 corners gets the greedy line only. The output is a
+simulated racing line and lap time, plotted like the current track plot
+(centerline plus speed-colored line). It does not drive a physical car.
+A printed figure is a top-down plot. A 3D-printed track would only be
+those walls extruded, and that is out of scope for the software.
+
+**What this phase is not.** It is not validation (Phase 9). Numbers stay
+illustrative and unvalidated. It is not elevation, Pacejka, tire
+thermal, or a wet line. It does not replace analytic tracks or Spa. It
+does not claim the scan closes to 1e-13 m. Closure of the fitted
+`Straight`/`Arc` list is the requirement. The raw points are noisy.
 
 ## Testing
 
