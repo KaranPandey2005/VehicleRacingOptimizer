@@ -3,9 +3,9 @@ Phase 5: CasADi racing-line optimizer.
 
 The path is a classic racing-line *shape* through each detected corner
 (outside on entry, inside at the apex, outside on exit), with C1 half-cosine
-blends. Every curvature peak is visited. Amplitudes are chosen by a greedy
-QSS search (keep a change only if the lap gets faster), then a short CasADi
-polish on small tracks.
+blends. Every curvature peak is a decision corner. Amplitudes are chosen by
+a greedy QSS search (keep a change only if the lap gets faster), then a
+CasADi polish whenever CasADi is available.
 
 The centerline is only kept if the solved line is not faster.
 """
@@ -296,6 +296,7 @@ def optimized_racing_line(track, vehicle, tire, safety_factor=1.0,
         if verbose:
             print("Phase 5: no corners detected; using centerline.")
         return center
+    center["n_corners"] = len(corners)
 
     apex_shift = apex_bias_m(vehicle)
     n_z = 2 * len(corners)
@@ -313,7 +314,7 @@ def optimized_racing_line(track, vehicle, tire, safety_factor=1.0,
             track, vehicle, tire, safety_factor, z, corners, edge_margin,
             apex_shift, rho=rho, driving_mode=driving_mode,
         )
-        if n_z <= 16 and casadi_available():
+        if casadi_available():
             z_p = _solve_qss(
                 track, vehicle, tire, safety_factor, n_max, edge_margin,
                 corners, apex_shift, z, verbose=verbose, rho=rho,
