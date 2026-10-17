@@ -5,7 +5,7 @@ Driving modes are no longer a uniform scale on speed. Each mode is:
 
     J = w_time * lap_time + w_risk * wall_risk + w_tire * tire_stress
 
-plus a hard friction-circle cap u_max and a larger edge margin for Safer
+plus a hard Pacejka-ellipse cap u_max and a larger edge margin for Safer
 modes (the optimizer is not allowed as close to the walls).
 
     wall_risk    = mean( ( |n| / (width/2) )^2 )     in [0, 1]
@@ -14,15 +14,19 @@ modes (the optimizer is not allowed as close to the walls).
 Attack minimizes lap time. Race/Safe trade seconds for lower u and more
 distance from the painted edge.
 
-This is still a point-mass QSS model. It is not a driver model, a crash
-probability, or a thermal tire-life model.
+QSS uses bicycle axle forces (Phase 10b). This is not a driver model, a
+crash probability, or a thermal tire-life model.
 """
 
 from dataclasses import dataclass
 import numpy as np
 
-from src.physics.dynamics import axle_grip
+from src.physics.dynamics import axle_peaks
 from src.vehicle.aero import RHO_AIR_SEA_LEVEL
+from src.vehicle.bicycle import (
+    lateral_axle_forces, reconstruct_slips, split_longitudinal_force,
+    steer_and_beta,
+)
 from src.vehicle.tires import friction_utilization
 
 
@@ -49,27 +53,43 @@ DRIVING_MODES = {
 
 
 def forces_along_profile(profile, vehicle, tire, rho=RHO_AIR_SEA_LEVEL):
-    """Fx, Fy, F_max, u along a solved speed profile (point-mass)."""
+    """Fx, Fy, F_max, u along a solved speed profile (bicycle + Pacejka ellipse)."""
     from src.optimization.lap_time import compute_telemetry
 
     tel = compute_telemetry(profile)
     v = np.asarray(profile["v"], dtype=float)
+    kappa = np.asarray(profile["curvature"], dtype=float)
     fx = vehicle.mass * tel["a_lon"]
     fy = vehicle.mass * tel["a_lat"]
-    f_f, f_r, n_f, n_r = axle_grip(
+    dx_f, dy_f, dx_r, dy_r, n_f, n_r = axle_peaks(
         vehicle, tire, v, a_lon=tel["a_lon"], rho=rho, u_max=1.0,
     )
-    f_max = f_f + f_r
+    fy_f, fy_r = lateral_axle_forces(vehicle, fy)
+    fx_f, fx_r = split_longitudinal_force(vehicle, fx)
+    u_f = friction_utilization(fx_f, fy_f, dx_f, dy_f)
+    u_r = friction_utilization(fx_r, fy_r, dx_r, dy_r)
+    u = np.maximum(u_f, u_r)
+    alpha_f, alpha_r, kappa_f, kappa_r = reconstruct_slips(
+        tire, fy_f, fy_r, fx_f, fx_r, dy_f, dy_r, dx_f, dx_r,
+    )
+    delta, beta = steer_and_beta(vehicle, kappa, alpha_f, alpha_r)
     n_load = n_f + n_r
-    u = friction_utilization(fx, fy, f_max)
     return {
         "a_lon": tel["a_lon"],
         "a_lat": tel["a_lat"],
         "f_x": fx,
         "f_y": fy,
-        "f_max": f_max,
+        "f_max": dy_f + dy_r,
         "u": u,
+        "u_front": u_f,
+        "u_rear": u_r,
         "normal_load": n_load,
+        "alpha_f": alpha_f,
+        "alpha_r": alpha_r,
+        "kappa_f": kappa_f,
+        "kappa_r": kappa_r,
+        "steer": delta,
+        "beta": beta,
     }
 
 
@@ -91,6 +111,8 @@ def safety_metrics(profile, track, vehicle, tire, rho=RHO_AIR_SEA_LEVEL):
         **forces,
         "mean_utilization": float(np.mean(u)),
         "peak_utilization": float(np.max(u)),
+        "peak_slip_front_deg": float(np.max(np.abs(forces["alpha_f"])) * 180.0 / np.pi),
+        "peak_slip_rear_deg": float(np.max(np.abs(forces["alpha_r"])) * 180.0 / np.pi),
         "wall_risk": risk,
         "tire_stress": stress,
     }

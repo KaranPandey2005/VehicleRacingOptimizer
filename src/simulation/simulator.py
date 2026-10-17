@@ -2,7 +2,7 @@
 Simulator: orchestrates track + vehicle + tire + weather into a single
 run() that produces a speed profile, lap time, and summary telemetry.
 
-Phase 7 driving modes use a friction-circle cap u_max plus the weighted
+Phase 7 driving modes use a Pacejka-ellipse cap u_max plus the weighted
 objective J = w_time * lap_time + w_risk * wall_risk + w_tire * tire_stress.
 Attack is still minimum-time. Race/Safe leave grip and wall margin.
 
@@ -56,6 +56,8 @@ class SimulationResult:
             f"Peak lateral:    {t['peak_lat_accel_g']:5.2f} g\n"
             f"Util. mean/peak: {t['mean_utilization']:5.2f} / {t['peak_utilization']:5.2f}"
             f"  (cap {self.u_max:.2f})\n"
+            f"Peak slip α:     f {t['peak_slip_front_deg']:4.1f}° / "
+            f"r {t['peak_slip_rear_deg']:4.1f}°\n"
             f"Wall risk:       {t['wall_risk']:5.3f}   tire stress: {t['tire_stress']:5.3f}\n"
         )
 
@@ -65,7 +67,7 @@ class Simulator:
                  line_mode: str = "centerline", weather: Weather = None):
         self.track = track
         self.vehicle = vehicle
-        self.tire = tire or TireModel(mu=vehicle.tire_mu)
+        self.tire = tire or TireModel.from_vehicle(vehicle)
         self.weather = weather or Weather()
         if mode not in DRIVING_MODES:
             raise ValueError(f"Unknown mode '{mode}', expected one of {list(DRIVING_MODES)}")
@@ -110,11 +112,19 @@ class Simulator:
         )
         telemetry.update({
             "u": metrics["u"],
+            "u_front": metrics["u_front"],
+            "u_rear": metrics["u_rear"],
             "f_x": metrics["f_x"],
             "f_y": metrics["f_y"],
             "f_max": metrics["f_max"],
+            "alpha_f": metrics["alpha_f"],
+            "alpha_r": metrics["alpha_r"],
+            "steer": metrics["steer"],
+            "beta": metrics["beta"],
             "mean_utilization": metrics["mean_utilization"],
             "peak_utilization": metrics["peak_utilization"],
+            "peak_slip_front_deg": metrics["peak_slip_front_deg"],
+            "peak_slip_rear_deg": metrics["peak_slip_rear_deg"],
             "wall_risk": metrics["wall_risk"],
             "tire_stress": metrics["tire_stress"],
         })

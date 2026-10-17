@@ -50,7 +50,7 @@ def main():
     results = []
     for fname in vehicle_files:
         vehicle = Vehicle.from_json(os.path.join(data_dir, fname))
-        tire = TireModel(mu=vehicle.tire_mu)
+        tire = TireModel.from_vehicle(vehicle)
         sim = Simulator(track, vehicle, tire, mode="attack", line_mode="optimized")
         result = sim.run()
         save_run(result)
@@ -68,9 +68,9 @@ def main():
 
     # Driving-mode effect on the same CasADi line used above.
     vehicle = Vehicle.from_json(os.path.join(data_dir, "subaru_brz.json"))
-    tire = TireModel(mu=vehicle.tire_mu)
+    tire = TireModel.from_vehicle(vehicle)
     print("--- Driving mode comparison (Subaru BRZ, optimized line, Phase 7) ---")
-    print("J = lap_time + w_risk*wall_risk + w_tire*tire_stress; u_max caps the GG circle.")
+    print("J = lap_time + w_risk*wall_risk + w_tire*tire_stress; u_max caps the Pacejka ellipse.")
     for mode in ["attack", "race", "safe"]:
         sim = Simulator(track, vehicle, tire, mode=mode, line_mode="optimized")
         result = sim.run()
@@ -109,7 +109,7 @@ def main():
     print("\n--- Reference baselines (Subaru BRZ Attack; not the demo result) ---")
     print("Phase 4 shaped is an outside-apex-outside heuristic; usually slower.")
     vehicle = Vehicle.from_json(os.path.join(data_dir, "subaru_brz.json"))
-    tire = TireModel(mu=vehicle.tire_mu)
+    tire = TireModel.from_vehicle(vehicle)
     centerline = Simulator(track, vehicle, tire, mode="attack",
                              line_mode="centerline").run()
     save_run(centerline)

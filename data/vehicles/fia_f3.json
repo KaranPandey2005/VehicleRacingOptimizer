@@ -23,7 +23,8 @@
     "drag_coefficient": "C_D (dimensionless)",
     "downforce_coefficient": "C_L, positive downforce (dimensionless)",
     "center_of_pressure": "fraction of wheelbase from front axle (0-1)",
-    "tire_mu": "dry grip coefficient (dimensionless)",
+    "tire_mu": "dry peak lateral mu at N_ref (dimensionless)",
+    "pacejka": "axle-equivalent MF: Bx,Cx,Ex,By,Cy,Ey; mu_x peak long mu",
     "top_speed": "m/s"
   },
   "mass": 690.0,
@@ -55,5 +56,14 @@
   "downforce_coefficient": 2.4,
   "center_of_pressure": 0.48,
   "tire_mu": 1.70,
+  "pacejka": {
+    "Bx": 14.0,
+    "Cx": 1.65,
+    "Ex": 0.0,
+    "By": 12.0,
+    "Cy": 1.30,
+    "Ey": -0.5,
+    "mu_x": 1.80
+  },
   "top_speed": 83.3
 }

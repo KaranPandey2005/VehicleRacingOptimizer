@@ -5,7 +5,8 @@ lap time for a given track, vehicle, tire grip, and driving mode. The central
 engineering goal of this project is that the result should depend on **which
 car** you simulate, not just the track shape.
 
-> **Status:** Phases 1–8 plus Phase 10a physics (torque curve + axle split).
+> **Status:** Phases 1–8 plus Phase 10a (torque curve + axle split) and
+> Phase 10b (Pacejka / bicycle tires).
 > Nothing here is validated against a real vehicle or track unless explicitly
 > stated — treat all numbers as illustrative engineering-simulation output,
 > not ground truth.
@@ -18,8 +19,9 @@ car** you simulate, not just the track shape.
 - Models a configurable vehicle (mass, powertrain, drivetrain, drag, downforce,
   brakes, tire grip) loaded from JSON. Drive force comes from a torque curve
   × gears; FWD/RWD/AWD and brake bias use front/rear load transfer.
-- Computes speed-dependent tire grip (per-axle friction circle with combined
-  slip and load sensitivity) and aerodynamic downforce/drag.
+- Computes speed-dependent tire grip (axle-equivalent Pacejka peaks on a
+  bicycle, elliptical combined slip, load sensitivity) and aerodynamic
+  downforce/drag.
 - Solves a vehicle-specific speed profile along a line using the standard
   **quasi-steady-state forward-backward pass**.
 - Optimizes a vehicle-specific racing line (`line_mode="optimized"`).
@@ -32,8 +34,8 @@ car** you simulate, not just the track shape.
 - Every completed lap (including unvalidated / fallback runs) appends one row
   to `data/results/runs.db` (tracked in git).
 
-**Deferred:** Pacejka tires, thermal/wear, elevation, a true wet line,
-validation against real laps (Phase 9). Next physics: Pacejka / bicycle.
+**Deferred:** thermal/wear, elevation, a true wet line, validation against
+real laps (Phase 9). Next physics: thermal / wear.
 
 ## Quick start
 
@@ -62,7 +64,8 @@ VehicleRacingOptimizer/
 │   ├── vehicle/
 │   │   ├── vehicle.py       # Vehicle config dataclass, JSON load/save
 │   │   ├── powertrain.py    # torque curve × gears (Phase 10a)
-│   │   ├── tires.py         # friction-circle + load sensitivity (Phase 7)
+│   │   ├── tires.py         # Pacejka MF peaks + ellipse (Phase 10b)
+│   │   ├── bicycle.py       # two-axle yaw split + slip reconstruct
 │   │   └── aero.py          # drag / downforce (quadratic-in-speed)
 │   ├── weather/
 │   │   └── weather.py       # dry/damp/wet grip + air density
@@ -114,20 +117,28 @@ include static split, aero at the center of pressure, and `m a_x h / L`
 transfer. FWD/RWD/AWD and `brake_bias_front` now change the lap, not just
 the JSON label.
 
-**Grip & aero** (`vehicle/tires.py`, `vehicle/aero.py`):
+**Grip & aero** (`vehicle/tires.py`, `vehicle/bicycle.py`, `vehicle/aero.py`):
 ```
 F_drag       = 0.5 * rho * C_D * A * v^2
 F_downforce  = 0.5 * rho * C_L * A * v^2
-N(v)         = m*g + F_downforce(v)
-F_grip_max   = mu * N(v)
+N_f, N_r     = static split + Cop*downforce ± m a_x h / L
+D_y,i        = μ_y(N_i) * N_i     (Pacejka peak; μ load-sensitive)
+D_x,i        = μ_x(N_i) * N_i
+F_y,f        = (b/L) * m v^2 |κ|  (bicycle yaw balance, not load split)
+F_y,r        = (a/L) * m v^2 |κ|
+(Fx/Dx)^2 + (Fy/Dy)^2  <=  u_max^2
 ```
+The first axle to hit `D_y` limits the corner (understeer if the front
+saturates first). B, C, E reconstruct slip angle/ratio for telemetry; they
+do not change the QSS speed limit. Coefficients in the vehicle JSON are
+illustrative, not a fitted tire.
 
-**Cornering speed limit** (`physics/dynamics.py`): setting required lateral
-force `m*v^2*kappa` equal to available grip `mu*(m*g + 0.5*rho*Cl*A*v^2)`
-gives a linear equation in `v^2` (solved in closed form, not iteratively,
-because both sides are already polynomial in `v^2`). With zero downforce
-this collapses exactly to the textbook `v_max = sqrt(mu*g*r)` — verified by
-a dedicated test.
+**Cornering speed limit** (`physics/dynamics.py`): bicycle yaw balance
+asks each axle for `Fy` in proportion to its lever arm. The slower of the
+two axles to `D_y` sets `v`. With constant μ and no aero both axles
+saturate together and this is still the textbook `v_max = sqrt(mu*g*r)` —
+verified by a dedicated test. With aero or load sensitivity the solver
+bisects on `v^2`.
 
 **Speed profile solver** (`optimization/racing_line.py`): the standard
 forward-backward quasi-steady-state pass. Start at the point with the lowest
@@ -141,7 +152,7 @@ braking-checked, producing a spurious multi-hundred-g "phantom braking"
 spike — now fixed and covered by
 `test_speed_profile_respects_corner_speed_limit_everywhere`.)
 
-**Driving modes (Phase 7)**: each mode is a friction-circle utilization cap
+**Driving modes (Phase 7)**: each mode is a Pacejka-ellipse utilization cap
 `u_max` plus weights on a scalar objective
 `J = w_time*lap_time + w_risk*wall_risk + w_tire*tire_stress`.
 Attack is minimum-time (`u_max = 1`, risk weights 0). Race and Safe leave
@@ -150,11 +161,9 @@ worse. This is not a crash-probability or tire-temperature model.
 
 ## Known limitations (intentional, tracked for later phases)
 
-- Tire model is a circular combined-slip envelope with optional load
-  sensitivity. **Not yet:** Pacejka/Magic Formula, slip angle/ratio states,
-  temperature, wear, compound, camber, inflation, or front/rear split.
-- Engine modeled as a single max-power figure with a traction-force floor,
-  not a gear-by-gear torque curve.
+- Tire model is an axle-equivalent Pacejka sine MF on a bicycle, with an
+  elliptical combined-slip envelope and lumped load sensitivity. **Not yet:**
+  temperature, wear, compound, camber, inflation, or left/right load transfer.
 - No elevation. Extra track layouts are factory functions on the existing
   `Straight`/`Arc` builder, not a redesign.
 - Weather is a dry/damp/wet grip scale (and optional air density from
@@ -176,9 +185,10 @@ worse. This is not a crash-probability or tire-temperature model.
 | 8 | PySide6 GUI | ✅ Done |
 | 9 | Validation against real data / other simulators | Planned (after more physics) |
 | 10a | Torque curve + F/R split / load transfer | ✅ Done |
+| 10b | Pacejka / bicycle tires | ✅ Done |
 | 11 | Measured track from 2D LiDAR | Future goal |
 
-Later physics: Pacejka / bicycle, thermal/wear, elevation, a true wet racing line.
+Later physics: thermal/wear, elevation, a true wet racing line.
 
 ### Phase 11: Measured track from 2D LiDAR
 

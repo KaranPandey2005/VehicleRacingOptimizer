@@ -70,7 +70,7 @@ class SessionSpec:
 def run_session(spec: SessionSpec):
     track = get_track(spec.track_key)
     vehicle = Vehicle.from_json(spec.vehicle_path)
-    tire = TireModel(mu=vehicle.tire_mu)
+    tire = TireModel.from_vehicle(vehicle)
     weather = Weather(condition=Condition(spec.weather))
     result = Simulator(
         track, vehicle, tire,

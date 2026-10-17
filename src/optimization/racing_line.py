@@ -212,7 +212,7 @@ def compute_speed_profile(track, vehicle, tire, line=None, safety_factor=1.0,
     Compute a vehicle-specific speed profile v(s) along a racing line.
 
     safety_factor / u_max
-        Fraction of the friction circle the solver may use (Phase 7).
+        Fraction of the Pacejka ellipse the solver may use (Phase 7 / 10b).
         Attack = 1.0. This is NOT a scale on speed: corner speed goes as
         sqrt(u_max). Combined-slip couples remaining long force to lateral
         demand so you cannot trail-brake or accelerate at u = 1 in a corner.

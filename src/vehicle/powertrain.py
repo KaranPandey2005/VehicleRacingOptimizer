@@ -11,7 +11,7 @@ If JSON omits a curve or ratios, they are synthesized from max_power and
 top_speed so older vehicle files still run.
 
 This is still quasi-steady-state. It is not a shift-time model, clutch
-model, or engine inertia. Pacejka / slip states are later.
+model, or engine inertia.
 """
 
 from __future__ import annotations

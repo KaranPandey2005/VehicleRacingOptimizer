@@ -9,7 +9,7 @@ Phase 10a: optional torque curve, gear ratios, and brake bias. Empty curve
 or ratios are synthesized from max_power / top_speed. Drivetrain (RWD/FWD/AWD)
 now limits which axle can put down drive force.
 
-Still later: Pacejka, thermal/wear, elevation, a true wet line.
+Still later: thermal/wear, elevation, a true wet line.
 """
 
 from __future__ import annotations
@@ -54,7 +54,9 @@ class Vehicle:
     center_of_pressure: float = 0.5  # fraction of wheelbase from front axle
 
     # Tire / grip (paired with TireModel in tires.py)
-    tire_mu: float = 1.15            # dry grip coefficient, dimensionless
+    tire_mu: float = 1.15            # dry peak lateral mu at N_ref
+    # Optional Pacejka shape: Bx,Cx,Ex,By,Cy,Ey, mu_x. Empty → TireModel defaults.
+    pacejka: dict = field(default_factory=dict)
 
     # Performance caps
     top_speed: float = 63.0          # m/s

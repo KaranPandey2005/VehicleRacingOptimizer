@@ -4,19 +4,27 @@ Core longitudinal/lateral dynamics limits used by the racing-line speed solver.
 Phase 10a: front/rear normal loads (static + aero + long transfer) and
 drivetrain-specific drive force from the torque curve.
 
+Phase 10b: Pacejka peaks D_x, D_y on a bicycle. Lateral demand is split by
+lever arms (yaw-moment balance), not by instantaneous load. Combined slip
+is an ellipse so leftover drive/brake can use D_x ≠ D_y.
+
     N_f, N_r  = static split + Cop*downforce ± m a_x h / L
-    F_max,i   = u_max * mu(N_i) * N_i     (per axle, load sensitive)
-    F_y,i     = (N_i / N) * m v^2 |kappa|  (lateral split by load)
-    leftover  = sqrt(F_max,i^2 - F_y,i^2)
+    D_y,i     = u_max * μ_y(N_i) * N_i
+    D_x,i     = u_max * μ_x(N_i) * N_i
+    F_y,f     = (b/L) * m v^2 |kappa|
+    F_y,r     = (a/L) * m v^2 |kappa|
+    leftover  = D_x * sqrt(1 - (F_y / D_y)^2)
 
 Drive uses only the driven axle(s). Brakes use brake_bias_front vs leftover.
 
-Cornering with lambda = 0 still matches v = sqrt(mu g r) at 1g, no aero.
+Cornering with lambda = 0 and no aero still matches v = sqrt(mu g r) at 1g.
 """
 
 import numpy as np
 from src.vehicle.aero import drag_force, downforce, RHO_AIR_SEA_LEVEL
+from src.vehicle.bicycle import lever_arms, lateral_axle_forces
 from src.vehicle.powertrain import max_engine_drive_force
+from src.vehicle.tires import combined_slip_fx
 
 G = 9.81  # m/s^2
 
@@ -79,43 +87,50 @@ def axle_loads(vehicle, v, a_lon=0.0, rho=RHO_AIR_SEA_LEVEL):
     return n_f, n_r
 
 
-def _axle_fmax(tire, n, n_ref, u_max):
+def _peak_at_load(mu0, n, n_ref, lam, u_max):
+    if isinstance(n, np.ndarray) and n.ndim > 0:
+        n = np.maximum(n, 0.0)
+        if abs(lam) < 1e-12:
+            return u_max * mu0 * n
+        mu = mu0 * (n_ref / np.maximum(n, 1.0)) ** lam
+        return u_max * mu * n
+    n = float(n)
     if n <= 0.0:
         return 0.0
-    mu0 = tire.mu * tire.grip_modifier
-    lam = tire.load_sensitivity
     if abs(lam) < 1e-12:
         return u_max * mu0 * n
     mu = mu0 * (n_ref / n) ** lam if n_ref > 1.0 else mu0
     return u_max * mu * n
 
 
-def axle_grip(vehicle, tire, v, a_lon=0.0, rho=RHO_AIR_SEA_LEVEL, u_max=1.0):
-    """Per-axle friction-circle radii (N) at the current load."""
+def axle_peaks(vehicle, tire, v, a_lon=0.0, rho=RHO_AIR_SEA_LEVEL, u_max=1.0):
+    """Per-axle Pacejka peaks Dx, Dy (N) and normal loads at the current load."""
     n_f, n_r = axle_loads(vehicle, v, a_lon=a_lon, rho=rho)
     nref_f, nref_r = static_axle_refs(vehicle)
     u_max = float(u_max)
-    if isinstance(n_f, np.ndarray) and n_f.ndim > 0:
-        mu0 = tire.effective_mu()
-        lam = tire.load_sensitivity
-        n_f = np.maximum(n_f, 0.0)
-        n_r = np.maximum(n_r, 0.0)
-        if abs(lam) < 1e-12:
-            return u_max * mu0 * n_f, u_max * mu0 * n_r, n_f, n_r
-        mu_f = mu0 * (nref_f / np.maximum(n_f, 1.0)) ** lam
-        mu_r = mu0 * (nref_r / np.maximum(n_r, 1.0)) ** lam
-        return u_max * mu_f * n_f, u_max * mu_r * n_r, n_f, n_r
-    return (
-        _axle_fmax(tire, n_f, nref_f, u_max),
-        _axle_fmax(tire, n_r, nref_r, u_max),
-        n_f,
-        n_r,
+    lam = tire.load_sensitivity
+    mu_y = tire.effective_mu()
+    mu_x = tire.effective_mu_x()
+    dy_f = _peak_at_load(mu_y, n_f, nref_f, lam, u_max)
+    dy_r = _peak_at_load(mu_y, n_r, nref_r, lam, u_max)
+    dx_f = _peak_at_load(mu_x, n_f, nref_f, lam, u_max)
+    dx_r = _peak_at_load(mu_x, n_r, nref_r, lam, u_max)
+    return dx_f, dy_f, dx_r, dy_r, n_f, n_r
+
+
+def axle_grip(vehicle, tire, v, a_lon=0.0, rho=RHO_AIR_SEA_LEVEL, u_max=1.0):
+    """Per-axle peak lateral force D_y (N) at the current load."""
+    _dx_f, dy_f, _dx_r, dy_r, n_f, n_r = axle_peaks(
+        vehicle, tire, v, a_lon=a_lon, rho=rho, u_max=u_max,
     )
+    return dy_f, dy_r, n_f, n_r
 
 
 def grip_force(vehicle, tire, v, rho=RHO_AIR_SEA_LEVEL, u_max=1.0, a_lon=0.0):
-    """Total friction-circle radius (N), sum of axles."""
-    f_f, f_r, _nf, _nr = axle_grip(vehicle, tire, v, a_lon=a_lon, rho=rho, u_max=u_max)
+    """Sum of axle D_y (N). Bicycle cornering is limited by the first axle."""
+    f_f, f_r, _nf, _nr = axle_grip(
+        vehicle, tire, v, a_lon=a_lon, rho=rho, u_max=u_max,
+    )
     return f_f + f_r
 
 
@@ -130,23 +145,16 @@ def _driven_fx_cap(vehicle, fx_f, fx_r, f_eng):
 
 
 def _leftover_axles(vehicle, tire, v, a_lon, curvature, rho, u_max):
-    f_f, f_r, n_f, n_r = axle_grip(
+    dx_f, dy_f, dx_r, dy_r, _nf, _nr = axle_peaks(
         vehicle, tire, v, a_lon=a_lon, rho=rho, u_max=u_max,
     )
     f_lat = vehicle.mass * v * v * abs(curvature)
-    n_tot = n_f + n_r
-    if n_tot < 1.0:
-        n_tot = 1.0
-    fy_f = f_lat * n_f / n_tot
-    fy_r = f_lat * n_r / n_tot
-    def leftover(fmax, fy):
-        rem = fmax * fmax - fy * fy
-        return rem ** 0.5 if rem > 0.0 else 0.0
-    return leftover(f_f, fy_f), leftover(f_r, fy_r)
+    fy_f, fy_r = lateral_axle_forces(vehicle, f_lat)
+    return combined_slip_fx(dx_f, fy_f, dy_f), combined_slip_fx(dx_r, fy_r, dy_r)
 
 
 def _corner_speed_constant_mu(k, vehicle, tire, rho, u_max):
-    """Closed form when load sensitivity is off (linear in v^2)."""
+    """Closed form when load sensitivity is off and there is no aero (linear in v^2)."""
     mu = float(u_max) * tire.effective_mu()
     m = vehicle.mass
     aero_term = mu * 0.5 * rho * vehicle.downforce_coefficient * vehicle.frontal_area
@@ -163,14 +171,18 @@ def corner_speed_limit(curvature, vehicle, tire, rho=RHO_AIR_SEA_LEVEL,
                        u_max=1.0):
     """
     Maximum speed (m/s) at which the car can hold a corner of given curvature
-    (1/m) at utilization u_max of the friction circle (pure lateral, a_x = 0).
+    (1/m) at utilization u_max (pure lateral, a_x = 0).
+
+    Bicycle: the slower of the two axles to D_y. With no aero and constant mu
+    both axles saturate together at v = sqrt(mu g r).
     """
     k = abs(curvature)
     if k < 1e-9:
         return vehicle.top_speed
 
     u_max = float(u_max)
-    if abs(tire.load_sensitivity) < 1e-12:
+    no_aero = abs(float(vehicle.downforce_coefficient)) < 1e-12
+    if no_aero and abs(tire.load_sensitivity) < 1e-12:
         return _corner_speed_constant_mu(k, vehicle, tire, rho, u_max)
 
     m = vehicle.mass
@@ -178,10 +190,11 @@ def corner_speed_limit(curvature, vehicle, tire, rho=RHO_AIR_SEA_LEVEL,
     def residual(vs):
         vs = max(vs, 0.0)
         v = np.sqrt(vs)
-        f_f, f_r, _nf, _nr = axle_grip(
+        dy_f, dy_r, _nf, _nr = axle_grip(
             vehicle, tire, v, a_lon=0.0, rho=rho, u_max=u_max,
         )
-        return m * vs * k - (f_f + f_r)
+        fy_f, fy_r = lateral_axle_forces(vehicle, m * vs * k)
+        return max(fy_f - dy_f, fy_r - dy_r)
 
     vs_hi = vehicle.top_speed ** 2
     r0 = residual(0.0)
