@@ -5,8 +5,8 @@ lap time for a given track, vehicle, tire grip, and driving mode. The central
 engineering goal of this project is that the result should depend on **which
 car** you simulate, not just the track shape.
 
-> **Status:** Phases 1–8 plus Phase 10a (torque curve + axle split) and
-> Phase 10b (Pacejka / bicycle tires).
+> **Status:** Phases 1–8 plus Phase 10a–10c physics (torque/axle split,
+> Pacejka bicycle tires, lumped thermal/wear).
 > Nothing here is validated against a real vehicle or track unless explicitly
 > stated — treat all numbers as illustrative engineering-simulation output,
 > not ground truth.
@@ -20,8 +20,8 @@ car** you simulate, not just the track shape.
   brakes, tire grip) loaded from JSON. Drive force comes from a torque curve
   × gears; FWD/RWD/AWD and brake bias use front/rear load transfer.
 - Computes speed-dependent tire grip (axle-equivalent Pacejka peaks on a
-  bicycle, elliptical combined slip, load sensitivity) and aerodynamic
-  downforce/drag.
+  bicycle, elliptical combined slip, load sensitivity, lumped μ(T) and wear)
+  and aerodynamic downforce/drag.
 - Solves a vehicle-specific speed profile along a line using the standard
   **quasi-steady-state forward-backward pass**.
 - Optimizes a vehicle-specific racing line (`line_mode="optimized"`).
@@ -34,8 +34,8 @@ car** you simulate, not just the track shape.
 - Every completed lap (including unvalidated / fallback runs) appends one row
   to `data/results/runs.db` (tracked in git).
 
-**Deferred:** thermal/wear, elevation, a true wet line, validation against
-real laps (Phase 9). Next physics: thermal / wear.
+**Deferred:** elevation, a true wet line, validation against real laps
+(Phase 9). Next physics: elevation.
 
 ## Quick start
 
@@ -66,6 +66,7 @@ VehicleRacingOptimizer/
 │   │   ├── powertrain.py    # torque curve × gears (Phase 10a)
 │   │   ├── tires.py         # Pacejka MF peaks + ellipse (Phase 10b)
 │   │   ├── bicycle.py       # two-axle yaw split + slip reconstruct
+│   │   ├── thermal.py       # lumped T(s) + wear index (Phase 10c)
 │   │   └── aero.py          # drag / downforce (quadratic-in-speed)
 │   ├── weather/
 │   │   └── weather.py       # dry/damp/wet grip + air density
@@ -133,6 +134,13 @@ saturates first). B, C, E reconstruct slip angle/ratio for telemetry; they
 do not change the QSS speed limit. Coefficients in the vehicle JSON are
 illustrative, not a fitted tire.
 
+**Thermal / wear (Phase 10c)** (`vehicle/thermal.py`): each axle is a lumped
+heat capacity. Sliding/hysteresis heat `k_heat u^2 N v` minus convection
+`(h0 + hv v)(T − T_amb)` is integrated along the solved lap. Grip scales
+with a quadratic window around `T_opt`. Wear is a per-lap index (hotter and
+higher `u` wear faster). CasADi still sees a cold-start μ; QSS then
+re-solves once with μ(T(s)). Not a 3-zone carcass or a race stint.
+
 **Cornering speed limit** (`physics/dynamics.py`): bicycle yaw balance
 asks each axle for `Fy` in proportion to its lever arm. The slower of the
 two axles to `D_y` sets `v`. With constant μ and no aero both axles
@@ -157,13 +165,14 @@ spike — now fixed and covered by
 `J = w_time*lap_time + w_risk*wall_risk + w_tire*tire_stress`.
 Attack is minimum-time (`u_max = 1`, risk weights 0). Race and Safe leave
 grip and wall margin, and the optimizer may refuse a wider line if J gets
-worse. This is not a crash-probability or tire-temperature model.
+worse. This is not a crash-probability model. Tire temperature is Phase 10c.
 
 ## Known limitations (intentional, tracked for later phases)
 
 - Tire model is an axle-equivalent Pacejka sine MF on a bicycle, with an
-  elliptical combined-slip envelope and lumped load sensitivity. **Not yet:**
-  temperature, wear, compound, camber, inflation, or left/right load transfer.
+  elliptical combined-slip envelope, lumped load sensitivity, and a one-lump
+  thermal/wear pass. **Not yet:** compound, camber, inflation, left/right
+  load transfer, or multi-lap stint degradation.
 - No elevation. Extra track layouts are factory functions on the existing
   `Straight`/`Arc` builder, not a redesign.
 - Weather is a dry/damp/wet grip scale (and optional air density from
@@ -186,9 +195,10 @@ worse. This is not a crash-probability or tire-temperature model.
 | 9 | Validation against real data / other simulators | Planned (after more physics) |
 | 10a | Torque curve + F/R split / load transfer | ✅ Done |
 | 10b | Pacejka / bicycle tires | ✅ Done |
+| 10c | Lumped thermal / wear | ✅ Done |
 | 11 | Measured track from 2D LiDAR | Future goal |
 
-Later physics: thermal/wear, elevation, a true wet racing line.
+Later physics: elevation, a true wet racing line.
 
 ### Phase 11: Measured track from 2D LiDAR
 

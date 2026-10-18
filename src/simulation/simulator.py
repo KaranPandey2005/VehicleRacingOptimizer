@@ -7,7 +7,8 @@ objective J = w_time * lap_time + w_risk * wall_risk + w_tire * tire_stress.
 Attack is still minimum-time. Race/Safe leave grip and wall margin.
 
 Phase 6 weather scales tire grip (dry/damp/wet) and air density from ambient
-temperature. It does not model standing water, a wet line, or tire temp.
+temperature. Phase 10c uses ambient/track temp for lumped tire heat. It does
+not model standing water or a wet line.
 """
 
 from dataclasses import dataclass, replace
@@ -18,6 +19,7 @@ from src.optimization.trajectory import optimized_racing_line
 from src.optimization.lap_time import compute_lap_time, compute_telemetry
 from src.optimization.safety import DRIVING_MODES, safety_metrics, objective_cost
 from src.vehicle.tires import TireModel
+from src.vehicle.thermal import ThermalModel
 from src.weather.weather import Weather
 
 # Back-compat alias: old code treated this as a uniform speed scale.
@@ -58,6 +60,9 @@ class SimulationResult:
             f"  (cap {self.u_max:.2f})\n"
             f"Peak slip α:     f {t['peak_slip_front_deg']:4.1f}° / "
             f"r {t['peak_slip_rear_deg']:4.1f}°\n"
+            f"Peak tire T:     f {t.get('peak_t_front_c', 0.0):5.1f}°C / "
+            f"r {t.get('peak_t_rear_c', 0.0):5.1f}°C\n"
+            f"Wear index:      {t.get('wear_index', 0.0):6.4f}\n"
             f"Wall risk:       {t['wall_risk']:5.3f}   tire stress: {t['tire_stress']:5.3f}\n"
         )
 
@@ -68,6 +73,7 @@ class Simulator:
         self.track = track
         self.vehicle = vehicle
         self.tire = tire or TireModel.from_vehicle(vehicle)
+        self.thermal = ThermalModel.from_vehicle(vehicle)
         self.weather = weather or Weather()
         if mode not in DRIVING_MODES:
             raise ValueError(f"Unknown mode '{mode}', expected one of {list(DRIVING_MODES)}")
@@ -101,14 +107,37 @@ class Simulator:
             )
         else:
             line = geometric_racing_line(self.track)
+        t_amb = float(self.weather.ambient_temp_c)
+        t0 = float(self.weather.track_temp_c)
         profile = compute_speed_profile(
             self.track, self.vehicle, tire, line=line,
             safety_factor=mode_cfg.u_max, rho=rho,
+            u_scale=self.thermal.mu_factor(t0),
+        )
+        metrics = safety_metrics(
+            profile, self.track, self.vehicle, tire, rho=rho,
+        )
+        thermal = self.thermal.integrate(
+            profile["ds"], profile["v"],
+            metrics["u_front"], metrics["u_rear"],
+            metrics["n_front"], metrics["n_rear"],
+            t_amb, t0, t0,
+        )
+        profile = compute_speed_profile(
+            self.track, self.vehicle, tire, line=line,
+            safety_factor=mode_cfg.u_max, rho=rho,
+            u_scale=self.thermal.grip_scale(thermal["t_front"], thermal["t_rear"]),
         )
         lap_time = compute_lap_time(profile)
         telemetry = compute_telemetry(profile)
         metrics = safety_metrics(
             profile, self.track, self.vehicle, tire, rho=rho,
+        )
+        thermal = self.thermal.integrate(
+            profile["ds"], profile["v"],
+            metrics["u_front"], metrics["u_rear"],
+            metrics["n_front"], metrics["n_rear"],
+            t_amb, t0, t0,
         )
         telemetry.update({
             "u": metrics["u"],
@@ -127,6 +156,13 @@ class Simulator:
             "peak_slip_rear_deg": metrics["peak_slip_rear_deg"],
             "wall_risk": metrics["wall_risk"],
             "tire_stress": metrics["tire_stress"],
+            "t_front": thermal["t_front"],
+            "t_rear": thermal["t_rear"],
+            "wear_index": thermal["wear_index"],
+            "peak_t_front_c": thermal["peak_t_front_c"],
+            "peak_t_rear_c": thermal["peak_t_rear_c"],
+            "mean_t_front_c": thermal["mean_t_front_c"],
+            "mean_t_rear_c": thermal["mean_t_rear_c"],
         })
         objective = objective_cost(lap_time, metrics, mode_cfg)
         return SimulationResult(

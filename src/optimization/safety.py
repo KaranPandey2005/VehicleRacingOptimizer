@@ -14,8 +14,8 @@ modes (the optimizer is not allowed as close to the walls).
 Attack minimizes lap time. Race/Safe trade seconds for lower u and more
 distance from the painted edge.
 
-QSS uses bicycle axle forces (Phase 10b). This is not a driver model, a
-crash probability, or a thermal tire-life model.
+QSS uses bicycle axle forces (Phase 10b). Tire temperature/wear is a
+lumped post-pass (Phase 10c), not a stint model.
 """
 
 from dataclasses import dataclass
@@ -84,6 +84,8 @@ def forces_along_profile(profile, vehicle, tire, rho=RHO_AIR_SEA_LEVEL):
         "u_front": u_f,
         "u_rear": u_r,
         "normal_load": n_load,
+        "n_front": n_f,
+        "n_rear": n_r,
         "alpha_f": alpha_f,
         "alpha_r": alpha_r,
         "kappa_f": kappa_f,

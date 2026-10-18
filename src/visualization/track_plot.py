@@ -63,16 +63,26 @@ def plot_speed_map(track, result, ax=None, show=False, cmap="RdYlGn"):
     return ax
 
 
+def telemetry_panel_count(telemetry) -> int:
+    n = 3
+    if "u" in telemetry:
+        n += 1
+    if "t_front" in telemetry:
+        n += 1
+    return n
+
+
 def plot_telemetry(result, fig=None, show=False):
-    """Speed, longitudinal accel, lateral accel, and friction-circle u vs. distance."""
+    """Speed, long/lat accel, friction u, and tire temperature vs. distance."""
     profile = result.profile
     telemetry = result.telemetry
     s = profile["s"]
     has_u = "u" in telemetry
+    has_t = "t_front" in telemetry
+    n_ax = telemetry_panel_count(telemetry)
 
     if fig is None:
-        n_ax = 4 if has_u else 3
-        fig, axes = plt.subplots(n_ax, 1, figsize=(10, 9 if has_u else 8), sharex=True)
+        fig, axes = plt.subplots(n_ax, 1, figsize=(10, 2.2 * n_ax + 1.0), sharex=True)
     else:
         axes = fig.axes
 
@@ -90,18 +100,26 @@ def plot_telemetry(result, fig=None, show=False):
     axes[2].set_ylabel("Lat. accel (g)")
     axes[2].grid(alpha=0.3)
 
+    last = 2
     if has_u:
         u_max = getattr(result, "u_max", 1.0)
         axes[3].plot(s, telemetry["u"], color="tab:purple")
         axes[3].axhline(u_max, color="black", linewidth=0.8, linestyle="--",
                         label=f"u_max = {u_max:.2f}")
         axes[3].set_ylabel("Friction u")
-        axes[3].set_xlabel("Distance along lap (m)")
         axes[3].set_ylim(0.0, max(1.05, u_max + 0.05))
         axes[3].legend(loc="upper right", fontsize=8)
         axes[3].grid(alpha=0.3)
-    else:
-        axes[2].set_xlabel("Distance along lap (m)")
+        last = 3
+    if has_t:
+        ax_t = axes[last + 1]
+        ax_t.plot(s, telemetry["t_front"], color="tab:orange", label="front")
+        ax_t.plot(s, telemetry["t_rear"], color="tab:brown", label="rear")
+        ax_t.set_ylabel("Tire T (°C)")
+        ax_t.legend(loc="upper right", fontsize=8)
+        ax_t.grid(alpha=0.3)
+        last = last + 1
+    axes[last].set_xlabel("Distance along lap (m)")
 
     fig.suptitle(
         f"{result.vehicle_name} — {result.mode.upper()} — "

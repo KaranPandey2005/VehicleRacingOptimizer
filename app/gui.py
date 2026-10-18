@@ -35,7 +35,7 @@ from app.session import (
 from src.simulation.results import save_run
 from src.visualization.track_plot import (
     list_corner_insets, plot_single_corner_inset, plot_speed_map,
-    plot_telemetry, plot_track,
+    plot_telemetry, plot_track, telemetry_panel_count,
 )
 
 
@@ -252,7 +252,7 @@ class MainWindow(QMainWindow):
         self.speed_canvas.draw_idle()
 
         self.tel_fig.clear()
-        n_ax = 4 if "u" in result.telemetry else 3
+        n_ax = telemetry_panel_count(result.telemetry)
         self.tel_fig.subplots(n_ax, 1, sharex=True)
         plot_telemetry(result, fig=self.tel_fig)
         self.tel_canvas.draw_idle()

@@ -78,6 +78,7 @@ def test_json_round_trip_keeps_gears_and_curve():
     assert np.isclose(v2.final_drive, 4.10)
     assert "By" in v2.pacejka
     assert np.isclose(v2.pacejka["mu_x"], 1.20)
+    assert np.isclose(v2.thermal["t_opt_c"], 80.0)
 
 
 def test_one_g_corner_still_matches_classic_formula_per_axle():

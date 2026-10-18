@@ -42,7 +42,8 @@ def test_telemetry_includes_friction_circle_channels():
     result = Simulator(track, vehicle, mode="race").run()
     for key in ("u", "mean_utilization", "peak_utilization",
                 "wall_risk", "tire_stress", "alpha_f", "alpha_r",
-                "peak_slip_front_deg", "peak_slip_rear_deg"):
+                "peak_slip_front_deg", "peak_slip_rear_deg",
+                "t_front", "t_rear", "wear_index"):
         assert key in result.telemetry
     assert result.telemetry["peak_slip_front_deg"] >= 0.0
     assert result.telemetry["wall_risk"] >= 0.0

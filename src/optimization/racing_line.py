@@ -207,7 +207,8 @@ def shaped_racing_line(track, vehicle=None, n_out_frac=0.70, n_in_frac=0.75,
 
 
 def compute_speed_profile(track, vehicle, tire, line=None, safety_factor=1.0,
-                          n_passes=3, rho=RHO_AIR_SEA_LEVEL, u_max=None):
+                          n_passes=3, rho=RHO_AIR_SEA_LEVEL, u_max=None,
+                          u_scale=None):
     """
     Compute a vehicle-specific speed profile v(s) along a racing line.
 
@@ -216,6 +217,10 @@ def compute_speed_profile(track, vehicle, tire, line=None, safety_factor=1.0,
         Attack = 1.0. This is NOT a scale on speed: corner speed goes as
         sqrt(u_max). Combined-slip couples remaining long force to lateral
         demand so you cannot trail-brake or accelerate at u = 1 in a corner.
+
+    u_scale
+        Optional per-sample multiplier on u_max (Phase 10c μ(T)). Length n
+        or a scalar. Default 1 (temperature not yet applied).
     """
     if line is None:
         line = geometric_racing_line(track)
@@ -227,10 +232,15 @@ def compute_speed_profile(track, vehicle, tire, line=None, safety_factor=1.0,
     # of a line that cuts a corner, which biased QSS against a real racing line.
     ds = _path_segment_lengths(line["x"], line["y"])
     curvature = line["curvature"]
+    if u_scale is None:
+        scale = np.ones(n, dtype=float)
+    else:
+        scale = np.clip(np.broadcast_to(np.asarray(u_scale, dtype=float), (n,)),
+                        0.05, 1.0)
 
     v_corner = np.array([
-        corner_speed_limit(k, vehicle, tire, rho=rho, u_max=u_max)
-        for k in curvature
+        corner_speed_limit(k, vehicle, tire, rho=rho, u_max=u_max * sc)
+        for k, sc in zip(curvature, scale)
     ])
 
     start_idx = int(np.argmin(v_corner))
@@ -244,7 +254,7 @@ def compute_speed_profile(track, vehicle, tire, line=None, safety_factor=1.0,
             seg_len = ds[i_prev]
             a_max = max_traction_accel(
                 vehicle, tire, v[i_prev], rho=rho,
-                curvature=curvature[i_prev], u_max=u_max,
+                curvature=curvature[i_prev], u_max=u_max * scale[i_prev],
             )
             v_reachable = np.sqrt(max(v[i_prev] ** 2 + 2 * a_max * seg_len, 0.0))
             v[i_cur] = min(v_corner[i_cur], v_reachable)
@@ -257,7 +267,7 @@ def compute_speed_profile(track, vehicle, tire, line=None, safety_factor=1.0,
             seg_len = ds[i_cur]
             a_max = max_braking_decel(
                 vehicle, tire, v[i_next], rho=rho,
-                curvature=curvature[i_next], u_max=u_max,
+                curvature=curvature[i_next], u_max=u_max * scale[i_next],
             )
             v_reachable = np.sqrt(max(v[i_next] ** 2 + 2 * a_max * seg_len, 0.0))
             v[i_cur] = min(v[i_cur], v_reachable)
@@ -272,4 +282,5 @@ def compute_speed_profile(track, vehicle, tire, line=None, safety_factor=1.0,
         "ds": ds,
         "offset": np.asarray(line.get("offset", np.zeros_like(s)), dtype=float),
         "u_max": float(u_max),
+        "u_scale": scale,
     }

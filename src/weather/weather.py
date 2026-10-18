@@ -5,8 +5,8 @@ Wired into Simulator as a uniform grip scale (and optional air density from
 ambient temperature). Placeholders are physically motivated in *direction*
 only — not measured for a real tire or circuit.
 
-A later upgrade can add rain intensity, a wet racing line, and tire
-temperature. This module does not track thermal state.
+A later upgrade can add rain intensity and a wet racing line. Tire
+temperature uses ambient_temp_c / track_temp_c in thermal.py (Phase 10c).
 """
 
 from dataclasses import dataclass

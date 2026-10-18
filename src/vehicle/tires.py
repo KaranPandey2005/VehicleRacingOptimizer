@@ -19,7 +19,8 @@ Combined slip is an ellipse so Dx and Dy may differ:
 B, C, E reconstruct slip after the lap (telemetry). They do not change the
 QSS speed limit, which is peak-limited.
 
-Deferred: temperature, wear, compound, camber, inflation, left/right transfer.
+Deferred: compound, camber, inflation, left/right transfer.
+Temperature and wear live in thermal.py (Phase 10c), not in this MF.
 """
 
 from __future__ import annotations
