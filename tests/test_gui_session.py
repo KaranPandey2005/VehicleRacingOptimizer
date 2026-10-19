@@ -30,7 +30,7 @@ def test_gui_session_centerline_lap_is_finite():
 
 def test_spa_optimized_warns():
     msg = slow_run_warning("Spa-Francorchamps", "optimized")
-    assert "several minutes" in msg
+    assert "hours" in msg
     assert slow_run_warning("Rounded rectangle", "centerline") == ""
 
 

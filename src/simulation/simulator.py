@@ -13,13 +13,13 @@ not model standing water or a wet line.
 
 from dataclasses import dataclass, replace
 from src.optimization.racing_line import (
-    geometric_racing_line, shaped_racing_line, compute_speed_profile,
+    geometric_racing_line, shaped_racing_line,
 )
 from src.optimization.trajectory import optimized_racing_line
 from src.optimization.lap_time import compute_lap_time, compute_telemetry
 from src.optimization.safety import DRIVING_MODES, safety_metrics, objective_cost
 from src.vehicle.tires import TireModel
-from src.vehicle.thermal import ThermalModel
+from src.vehicle.thermal import ThermalModel, qss_with_thermal
 from src.weather.weather import Weather
 
 # Back-compat alias: old code treated this as a uniform speed scale.
@@ -104,29 +104,17 @@ class Simulator:
                 edge_margin=mode_cfg.edge_margin,
                 rho=rho,
                 driving_mode=mode_cfg,
+                thermal=self.thermal,
+                t_amb_c=float(self.weather.ambient_temp_c),
+                t0_c=float(self.weather.track_temp_c),
             )
         else:
             line = geometric_racing_line(self.track)
         t_amb = float(self.weather.ambient_temp_c)
         t0 = float(self.weather.track_temp_c)
-        profile = compute_speed_profile(
-            self.track, self.vehicle, tire, line=line,
-            safety_factor=mode_cfg.u_max, rho=rho,
-            u_scale=self.thermal.mu_factor(t0),
-        )
-        metrics = safety_metrics(
-            profile, self.track, self.vehicle, tire, rho=rho,
-        )
-        thermal = self.thermal.integrate(
-            profile["ds"], profile["v"],
-            metrics["u_front"], metrics["u_rear"],
-            metrics["n_front"], metrics["n_rear"],
-            t_amb, t0, t0,
-        )
-        profile = compute_speed_profile(
-            self.track, self.vehicle, tire, line=line,
-            safety_factor=mode_cfg.u_max, rho=rho,
-            u_scale=self.thermal.grip_scale(thermal["t_front"], thermal["t_rear"]),
+        profile, _th = qss_with_thermal(
+            self.track, self.vehicle, tire, self.thermal, line,
+            mode_cfg.u_max, rho, t_amb, t0,
         )
         lap_time = compute_lap_time(profile)
         telemetry = compute_telemetry(profile)

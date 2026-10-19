@@ -8,6 +8,9 @@ a greedy QSS search (keep a change only if the lap gets faster), then a
 CasADi polish whenever CasADi is available.
 
 The centerline is only kept if the solved line is not faster.
+
+Each QSS cost eval is thermally consistent (QSS at T0 → T(s) → QSS with
+μ(T)). That makes Spa optimized slower than a cold-start μ cost.
 """
 
 from __future__ import annotations
@@ -17,12 +20,14 @@ from scipy.ndimage import gaussian_filter1d
 from scipy.signal import find_peaks
 
 from src.optimization.racing_line import (
-    geometric_racing_line, line_from_offset, compute_speed_profile,
+    geometric_racing_line, line_from_offset,
     _half_cosine_periodic, apex_bias_m,
 )
 from src.optimization.lap_time import compute_lap_time
 from src.optimization.safety import safety_metrics, objective_cost
 from src.vehicle.aero import RHO_AIR_SEA_LEVEL
+from src.vehicle.thermal import ThermalModel, qss_with_thermal
+from src.weather.weather import Weather
 
 
 def casadi_available() -> bool:
@@ -141,13 +146,26 @@ def _score_profile(track, vehicle, tire, profile, driving_mode, rho):
 
 
 def _qss_lap(track, vehicle, tire, safety_factor, z, corners, edge_margin,
-             apex_shift=0.0, rho=RHO_AIR_SEA_LEVEL, driving_mode=None):
+             apex_shift=0.0, rho=RHO_AIR_SEA_LEVEL, driving_mode=None,
+             thermal=None, t_amb_c=None, t0_c=None):
     line = _line_from_z(track, z, corners, edge_margin, apex_shift=apex_shift)
-    profile = compute_speed_profile(
-        track, vehicle, tire, line=line, safety_factor=safety_factor, rho=rho,
+    thermal, t_amb_c, t0_c = _thermal_args(vehicle, thermal, t_amb_c, t0_c)
+    profile, _th = qss_with_thermal(
+        track, vehicle, tire, thermal, line, safety_factor, rho,
+        t_amb_c, t0_c,
     )
     cost, t = _score_profile(track, vehicle, tire, profile, driving_mode, rho)
     return cost, t, line
+
+
+def _thermal_args(vehicle, thermal, t_amb_c, t0_c):
+    if thermal is None:
+        thermal = ThermalModel.from_vehicle(vehicle)
+    if t_amb_c is None:
+        t_amb_c = Weather().ambient_temp_c
+    if t0_c is None:
+        t0_c = Weather().track_temp_c
+    return thermal, float(t_amb_c), float(t0_c)
 
 
 def _keep_callback(owner, name, cb):
@@ -158,7 +176,7 @@ def _keep_callback(owner, name, cb):
 
 def _solve_qss(track, vehicle, tire, safety_factor, n_max, edge_margin,
                corners, apex_shift, z0, verbose=False, rho=RHO_AIR_SEA_LEVEL,
-               driving_mode=None):
+               driving_mode=None, thermal=None, t_amb_c=None, t0_c=None):
     import casadi as ca
 
     n_z = 2 * len(corners)
@@ -191,6 +209,7 @@ def _solve_qss(track, vehicle, tire, safety_factor, n_max, edge_margin,
             cost, _t, _line = _qss_lap(
                 track, vehicle, tire, safety_factor, z, corners, edge_margin,
                 apex_shift, rho=rho, driving_mode=driving_mode,
+                thermal=thermal, t_amb_c=t_amb_c, t0_c=t0_c,
             )
             return [float(cost)]
 
@@ -229,7 +248,7 @@ def _solve_qss(track, vehicle, tire, safety_factor, n_max, edge_margin,
 
 def _greedy_corners_qss(track, vehicle, tire, safety_factor, n_max, edge_margin,
                         corners, apex_shift, verbose=False, rho=RHO_AIR_SEA_LEVEL,
-                        driving_mode=None):
+                        driving_mode=None, thermal=None, t_amb_c=None, t0_c=None):
     """
     Visit every detected corner (strongest |κ| first). Try a small grid of
     outside/inside amplitudes and keep a change only if the objective improves.
@@ -242,6 +261,7 @@ def _greedy_corners_qss(track, vehicle, tire, safety_factor, n_max, edge_margin,
     best_cost, _t, _ = _qss_lap(
         track, vehicle, tire, safety_factor, z, corners, edge_margin, apex_shift,
         rho=rho, driving_mode=driving_mode,
+        thermal=thermal, t_amb_c=t_amb_c, t0_c=t0_c,
     )
     strength = []
     for c in corners:
@@ -262,6 +282,7 @@ def _greedy_corners_qss(track, vehicle, tire, safety_factor, n_max, edge_margin,
                 cost, _t, _ = _qss_lap(
                     track, vehicle, tire, safety_factor, z, corners,
                     edge_margin, apex_shift, rho=rho, driving_mode=driving_mode,
+                    thermal=thermal, t_amb_c=t_amb_c, t0_c=t0_c,
                 )
                 if cost < local - 1e-4:
                     local = cost
@@ -276,18 +297,22 @@ def _greedy_corners_qss(track, vehicle, tire, safety_factor, n_max, edge_margin,
 
 def optimized_racing_line(track, vehicle, tire, safety_factor=1.0,
                           edge_margin=0.5, verbose=False, rho=RHO_AIR_SEA_LEVEL,
-                          driving_mode=None):
+                          driving_mode=None, thermal=None, t_amb_c=None,
+                          t0_c=None):
     """
-    Racing line under point-mass QSS physics. Attack minimizes lap time;
+    Racing line under bicycle QSS + lumped μ(T). Attack minimizes lap time;
     Race/Safe minimize J = w_t*t + w_r*risk + w_s*tire_stress.
     """
+    thermal, t_amb_c, t0_c = _thermal_args(vehicle, thermal, t_amb_c, t0_c)
     n_max = max(track.width / 2.0 - edge_margin, 0.05 * track.width / 2.0)
     center = geometric_racing_line(track)
     center["solver_ok"] = False
     center["used_fallback"] = True
-    t_cen = compute_lap_time(compute_speed_profile(
-        track, vehicle, tire, line=center, safety_factor=safety_factor, rho=rho,
-    ))
+    prof_c, _th = qss_with_thermal(
+        track, vehicle, tire, thermal, center, safety_factor, rho,
+        t_amb_c, t0_c,
+    )
+    t_cen = compute_lap_time(prof_c)
     center["centerline_lap_time"] = t_cen
     center["fine_lap_time"] = t_cen
 
@@ -302,27 +327,31 @@ def optimized_racing_line(track, vehicle, tire, safety_factor=1.0,
     n_z = 2 * len(corners)
     if verbose:
         print(f"Phase 5: optimizing {len(corners)} corners "
-              f"({n_z} decision variables).")
+              f"({n_z} decision variables), thermally consistent QSS.")
 
     try:
         z = _greedy_corners_qss(
             track, vehicle, tire, safety_factor, n_max, edge_margin,
             corners, apex_shift, verbose=verbose, rho=rho,
             driving_mode=driving_mode,
+            thermal=thermal, t_amb_c=t_amb_c, t0_c=t0_c,
         )
         cost_g, t_g, _ = _qss_lap(
             track, vehicle, tire, safety_factor, z, corners, edge_margin,
             apex_shift, rho=rho, driving_mode=driving_mode,
+            thermal=thermal, t_amb_c=t_amb_c, t0_c=t0_c,
         )
         if casadi_available():
             z_p = _solve_qss(
                 track, vehicle, tire, safety_factor, n_max, edge_margin,
                 corners, apex_shift, z, verbose=verbose, rho=rho,
                 driving_mode=driving_mode,
+                thermal=thermal, t_amb_c=t_amb_c, t0_c=t0_c,
             )
             cost_p, t_p, _ = _qss_lap(
                 track, vehicle, tire, safety_factor, z_p, corners, edge_margin,
                 apex_shift, rho=rho, driving_mode=driving_mode,
+                thermal=thermal, t_amb_c=t_amb_c, t0_c=t0_c,
             )
             if cost_p <= cost_g + 1e-3:
                 z = z_p
@@ -335,6 +364,7 @@ def optimized_racing_line(track, vehicle, tire, safety_factor=1.0,
     cost_opt, t_opt, line = _qss_lap(
         track, vehicle, tire, safety_factor, z, corners, edge_margin, apex_shift,
         rho=rho, driving_mode=driving_mode,
+        thermal=thermal, t_amb_c=t_amb_c, t0_c=t0_c,
     )
     line["solver_ok"] = True
     line["used_fallback"] = False
@@ -344,9 +374,6 @@ def optimized_racing_line(track, vehicle, tire, safety_factor=1.0,
     line["n_corners"] = len(corners)
     line["coeffs"] = z
 
-    prof_c = compute_speed_profile(
-        track, vehicle, tire, line=center, safety_factor=safety_factor, rho=rho,
-    )
     cost_cen, _ = _score_profile(
         track, vehicle, tire, prof_c, driving_mode, rho,
     )

@@ -54,7 +54,7 @@ def slow_run_warning(track_key: str, line_mode: str) -> str:
     if line_mode != "optimized":
         return ""
     if track_key == "Spa-Francorchamps":
-        return "Spa + optimized can take several minutes. Centerline is much faster."
+        return "Spa + optimized can take hours (thermally consistent QSS). Centerline is much faster."
     return "Optimized line is slower to compute than centerline."
 
 

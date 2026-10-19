@@ -138,8 +138,10 @@ illustrative, not a fitted tire.
 heat capacity. Sliding/hysteresis heat `k_heat u^2 N v` minus convection
 `(h0 + hv v)(T − T_amb)` is integrated along the solved lap. Grip scales
 with a quadratic window around `T_opt`. Wear is a per-lap index (hotter and
-higher `u` wear faster). CasADi still sees a cold-start μ; QSS then
-re-solves once with μ(T(s)). Not a 3-zone carcass or a race stint.
+higher `u` wear faster). Greedy and CasADi score each line guess with that
+two-pass (QSS at track temp → T(s) → QSS with μ(T)), so the racing line is
+not a cold-start μ. Spa + optimized is much slower because of this. Not a
+3-zone carcass or a race stint.
 
 **Cornering speed limit** (`physics/dynamics.py`): bicycle yaw balance
 asks each axle for `Fy` in proportion to its lever arm. The slower of the

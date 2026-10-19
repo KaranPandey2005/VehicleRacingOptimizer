@@ -9,8 +9,9 @@ One closed lap, after the QSS speed profile exists:
     μ(T)    = μ0 * clip(1 − 0.3 ((T − T_opt)/T_width)^2, mu_floor, 1)
     wear    = ∫ k_wear * u^2 * N * v * (1 + 0.5 * hot) dt
 
-QSS cannot carry T(s) inside the first speed solve, so Simulator does:
-solve → integrate T → re-solve with μ(T(s)) → integrate T again.
+QSS cannot carry T(s) inside the first speed solve. `qss_with_thermal`
+does: solve at T0 → integrate T → re-solve with μ(T(s)). Simulator and
+the greedy/CasADi racing-line cost both use that helper.
 
 Coefficients are illustrative. Weather.track_temp_c is the start temperature.
 """
@@ -123,3 +124,39 @@ class ThermalModel:
                 if key in raw and raw[key] is not None:
                     kwargs[key] = float(raw[key])
         return cls(**kwargs)
+
+
+def qss_with_thermal(track, vehicle, tire, thermal, line, safety_factor, rho,
+                     t_amb_c, t0_c):
+    """
+    Two-pass QSS: cold/track-temp grip, then μ(T(s)) from a heat march.
+
+    Returns (profile, thermal_dict) for the second pass. The racing-line
+    optimizer scores this profile; Simulator re-integrates T on it for
+    telemetry.
+    """
+    from src.optimization.racing_line import compute_speed_profile
+    from src.optimization.safety import safety_metrics
+
+    t0 = float(t0_c)
+    t_amb = float(t_amb_c)
+    profile = compute_speed_profile(
+        track, vehicle, tire, line=line,
+        safety_factor=safety_factor, rho=rho,
+        u_scale=thermal.mu_factor(t0),
+    )
+    metrics = safety_metrics(
+        profile, track, vehicle, tire, rho=rho,
+    )
+    th = thermal.integrate(
+        profile["ds"], profile["v"],
+        metrics["u_front"], metrics["u_rear"],
+        metrics["n_front"], metrics["n_rear"],
+        t_amb, t0, t0,
+    )
+    profile = compute_speed_profile(
+        track, vehicle, tire, line=line,
+        safety_factor=safety_factor, rho=rho,
+        u_scale=thermal.grip_scale(th["t_front"], th["t_rear"]),
+    )
+    return profile, th

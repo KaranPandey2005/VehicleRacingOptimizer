@@ -34,7 +34,7 @@ def test_spa_optimized_line_is_not_slower_than_centerline():
     track = Track.spa_francorchamps()
     vehicle = Vehicle()
     tire = TireModel(mu=vehicle.tire_mu)
-    line = optimized_racing_line(track, vehicle, tire)
+    line = optimized_racing_line(track, vehicle, tire, verbose=True)
     assert line["fine_lap_time"] <= line["centerline_lap_time"] + 0.05
     if not line.get("used_fallback"):
         assert float(np.max(np.abs(line["offset"]))) > 0.2

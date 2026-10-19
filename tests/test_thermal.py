@@ -1,9 +1,11 @@
 import numpy as np
 from src.track.track import Track
 from src.vehicle.vehicle import Vehicle
+from src.vehicle.tires import TireModel
 from src.vehicle.thermal import ThermalModel
 from src.simulation.simulator import Simulator
 from src.weather.weather import Weather, Condition
+from src.optimization.trajectory import _detect_corners, _qss_lap
 
 
 def default_track():
@@ -48,6 +50,25 @@ def test_cold_track_is_slower_than_tires_in_the_window():
     t_cold = Simulator(track, vehicle, mode="attack", weather=cold).run()
     t_hot = Simulator(track, vehicle, mode="attack", weather=hot).run()
     assert t_cold.lap_time > t_hot.lap_time
+
+
+def test_qss_lap_cost_sees_track_temperature():
+    """Greedy/CasADi cost eval is the two-pass thermal QSS, not cold μ."""
+    track = default_track()
+    vehicle = Vehicle()
+    tire = TireModel(mu=vehicle.tire_mu)
+    thermal = ThermalModel.from_vehicle(vehicle)
+    corners = _detect_corners(track)
+    z = np.zeros(2 * len(corners))
+    _c_cold, t_cold, _ = _qss_lap(
+        track, vehicle, tire, 1.0, z, corners, 0.5,
+        thermal=thermal, t_amb_c=10.0, t0_c=10.0,
+    )
+    _c_hot, t_hot, _ = _qss_lap(
+        track, vehicle, tire, 1.0, z, corners, 0.5,
+        thermal=thermal, t_amb_c=20.0, t0_c=thermal.t_opt_c,
+    )
+    assert t_cold > t_hot
 
 
 def test_attack_wears_more_than_safe():
