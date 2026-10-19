@@ -63,22 +63,32 @@ def plot_speed_map(track, result, ax=None, show=False, cmap="RdYlGn"):
     return ax
 
 
+def _has_elevation(telemetry) -> bool:
+    if "z" not in telemetry:
+        return False
+    z = np.asarray(telemetry["z"], dtype=float)
+    return z.size > 0 and float(np.ptp(z)) > 0.25
+
+
 def telemetry_panel_count(telemetry) -> int:
     n = 3
     if "u" in telemetry:
         n += 1
     if "t_front" in telemetry:
         n += 1
+    if _has_elevation(telemetry):
+        n += 1
     return n
 
 
 def plot_telemetry(result, fig=None, show=False):
-    """Speed, long/lat accel, friction u, and tire temperature vs. distance."""
+    """Speed, long/lat accel, friction u, tire temperature, and elevation vs. distance."""
     profile = result.profile
     telemetry = result.telemetry
     s = profile["s"]
     has_u = "u" in telemetry
     has_t = "t_front" in telemetry
+    has_z = _has_elevation(telemetry)
     n_ax = telemetry_panel_count(telemetry)
 
     if fig is None:
@@ -118,6 +128,12 @@ def plot_telemetry(result, fig=None, show=False):
         ax_t.set_ylabel("Tire T (°C)")
         ax_t.legend(loc="upper right", fontsize=8)
         ax_t.grid(alpha=0.3)
+        last = last + 1
+    if has_z:
+        ax_z = axes[last + 1]
+        ax_z.plot(s, telemetry["z"], color="tab:gray")
+        ax_z.set_ylabel("Elevation (m)")
+        ax_z.grid(alpha=0.3)
         last = last + 1
     axes[last].set_xlabel("Distance along lap (m)")
 

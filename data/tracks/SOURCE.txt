@@ -4,4 +4,6 @@ spa.csv
     https://github.com/TUMFTM/racetrack-database
   Original GPS from OpenStreetMap, smoothed by TUM FTM.
   License: GNU LGPL v3 (see that repository).
-  2D only — elevation (Eau Rouge / Raidillon) is not included.
+  2D centerline (x, y, widths) from TUM FTM.
+  Height z(s) is applied in Track.spa_francorchamps() as an illustrative
+  Eau Rouge valley / Kemmel climb — not a licensed survey, not banking.

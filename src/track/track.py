@@ -5,9 +5,8 @@ A Track holds a dense, arc-length-parameterized centerline (s, x, y, heading,
 curvature) plus a track width, and derives left/right boundaries by offsetting
 the centerline along its normal direction by +/- width/2.
 
-V1 scope: constant track width, 2D (no elevation yet -- elevation is a listed
-future extension in the project spec, not implemented here). Surface
-condition is handled by the weather module, not stored per-point yet.
+V1 elevation is a centerline height z(s) (same left and right — not banking).
+Surface condition is handled by the weather module, not stored per-point yet.
 """
 
 from __future__ import annotations
@@ -19,12 +18,15 @@ from src.track.geometry import (
     Straight, Arc, build_centerline, rounded_rectangle_segments,
     chicane_circuit_segments, resample_uniform, centerline_from_xy,
 )
+from src.track.elevation import (
+    cosine_hill, illustrative_spa_z, path_segment_lengths_xy, slope_arrays,
+)
 
 _TRACKS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data", "tracks")
 
 
 class Track:
-    def __init__(self, s, x, y, heading, curvature, width, name="track"):
+    def __init__(self, s, x, y, heading, curvature, width, name="track", z=None):
         self.s = np.asarray(s, dtype=float)
         self.x = np.asarray(x, dtype=float)
         self.y = np.asarray(y, dtype=float)
@@ -32,12 +34,17 @@ class Track:
         self.curvature = np.asarray(curvature, dtype=float)
         self.width = float(width)  # meters, constant for V1
         self.name = name
-
         n = len(self.s)
-        assert len(self.x) == len(self.y) == len(self.heading) == len(self.curvature) == n, \
+        if z is None:
+            self.z = np.zeros(n, dtype=float)
+        else:
+            self.z = np.asarray(z, dtype=float)
+        assert (len(self.x) == len(self.y) == len(self.heading)
+                == len(self.curvature) == len(self.z) == n), \
             "Track arrays must all be the same length"
 
         self._compute_boundaries()
+        self._compute_elevation()
 
     # ------------------------------------------------------------------ #
     # Construction
@@ -81,18 +88,21 @@ class Track:
         return cls.from_segments(segments, start_pose=start_pose, width=track_width, ds=ds, name=name)
 
     @classmethod
-    def from_xy(cls, x, y, width=12.0, ds=1.0, closed=True, smooth_window=51, name="track"):
+    def from_xy(cls, x, y, width=12.0, ds=1.0, closed=True, smooth_window=51,
+                name="track", z=None):
         """Build a Track from a centerline polyline (imported GPS / OSM / CSV)."""
-        data = centerline_from_xy(x, y, ds=ds, closed=closed, smooth_window=smooth_window)
+        data = centerline_from_xy(x, y, ds=ds, closed=closed, smooth_window=smooth_window,
+                                  z=z)
         return cls(data["s"], data["x"], data["y"], data["heading"], data["curvature"],
-                   width, name=name)
+                   width, name=name, z=data.get("z"))
 
     @classmethod
     def from_centerline_csv(cls, path, width=None, ds=1.0, closed=True,
                             smooth_window=51, name="track"):
         """
-        Load a TUM-style centerline CSV: x_m, y_m[, w_tr_right_m, w_tr_left_m].
+        Load a TUM-style centerline CSV: x_m, y_m[, w_tr_right_m, w_tr_left_m[, z_m]].
         If width is None and the file has width columns, uses their mean sum.
+        Optional z_m is height along the centerline (not banking).
         """
         arr = np.loadtxt(path, delimiter=",", comments="#")
         if arr.ndim != 2 or arr.shape[1] < 2:
@@ -103,8 +113,9 @@ class Track:
                 width = float(np.mean(arr[:, 2] + arr[:, 3]))
             else:
                 width = 12.0
+        z = arr[:, 4] if arr.shape[1] >= 5 else None
         return cls.from_xy(x, y, width=width, ds=ds, closed=closed,
-                           smooth_window=smooth_window, name=name)
+                           smooth_window=smooth_window, name=name, z=z)
 
     @classmethod
     def spa_francorchamps(cls, ds=2.0, track_width=None, smooth_window=51,
@@ -113,14 +124,16 @@ class Track:
         Circuit de Spa-Francorchamps (Belgium), ~7 km.
 
         Centerline is the OpenStreetMap-derived, smoothed polyline from the
-        TUM FTM racetrack database (2D only — no Eau Rouge elevation).
-        Not a licensed FIA survey; layout is recognizable, lap times are
-        illustrative.
+        TUM FTM racetrack database. Height z(s) is an illustrative Eau Rouge
+        valley / Kemmel climb, not a licensed survey. Not banking.
         """
         path = os.path.join(_TRACKS_DIR, "spa.csv")
-        return cls.from_centerline_csv(
+        track = cls.from_centerline_csv(
             path, width=track_width, ds=ds, smooth_window=smooth_window, name=name,
         )
+        if float(np.ptp(track.z)) < 0.01:
+            track = track.with_z(illustrative_spa_z(track.s, track.length), name=name)
+        return track
 
     # ------------------------------------------------------------------ #
     # Derived geometry
@@ -134,6 +147,22 @@ class Track:
         self.left_y = self.y + half_w * ny
         self.right_x = self.x - half_w * nx
         self.right_y = self.y - half_w * ny
+
+    def _compute_elevation(self):
+        ds_xy = path_segment_lengths_xy(self.x, self.y)
+        self.sin_theta, self.cos_theta, self.kappa_v = slope_arrays(self.z, ds_xy)
+
+    def with_z(self, z, name=None):
+        """Return a copy of this layout with a new centerline height z(s)."""
+        return Track(
+            self.s, self.x, self.y, self.heading, self.curvature, self.width,
+            name=name or self.name, z=z,
+        )
+
+    def with_hill(self, s_center, width, height, name=None):
+        """Closed-loop cosine bump (tests / synthetic grade)."""
+        z = cosine_hill(self.s, self.length, s_center, width, height)
+        return self.with_z(z, name=name)
 
     @property
     def length(self) -> float:
@@ -163,6 +192,10 @@ class Track:
         y = np.interp(s_wrapped, self.s, self.y)
         return x, y
 
+    def z_at_s(self, s_query):
+        s_wrapped = np.mod(s_query, self.length)
+        return np.interp(s_wrapped, self.s, self.z)
+
     # ------------------------------------------------------------------ #
     # Persistence
     # ------------------------------------------------------------------ #
@@ -175,6 +208,7 @@ class Track:
             "y": self.y.tolist(),
             "heading": self.heading.tolist(),
             "curvature": self.curvature.tolist(),
+            "z": self.z.tolist(),
         }
         with open(path, "w") as f:
             json.dump(payload, f)
@@ -184,7 +218,8 @@ class Track:
         with open(path) as f:
             payload = json.load(f)
         return cls(payload["s"], payload["x"], payload["y"], payload["heading"],
-                    payload["curvature"], payload["width"], name=payload.get("name", "track"))
+                    payload["curvature"], payload["width"],
+                    name=payload.get("name", "track"), z=payload.get("z"))
 
     def __repr__(self):
         return (f"Track('{self.name}', length={self.length:.1f} m, "

@@ -48,15 +48,32 @@ this forward-backward pass.
 """
 
 import numpy as np
-from src.physics.dynamics import corner_speed_limit, max_traction_accel, max_braking_decel
+from src.physics.dynamics import (
+    G, corner_speed_limit, max_traction_accel, max_braking_decel,
+)
+from src.track.elevation import segment_grade
 from src.vehicle.aero import RHO_AIR_SEA_LEVEL
+
+
+def _line_elevation(line, track):
+    """Centerline height on the line (same z left/right — not banking)."""
+    z = np.asarray(getattr(track, "z", np.zeros_like(track.s)), dtype=float)
+    line["z"] = z.copy()
+    line["sin_theta"] = np.asarray(getattr(track, "sin_theta", np.zeros_like(z)),
+                                   dtype=float).copy()
+    line["cos_theta"] = np.asarray(getattr(track, "cos_theta", np.ones_like(z)),
+                                   dtype=float).copy()
+    line["kappa_v"] = np.asarray(getattr(track, "kappa_v", np.zeros_like(z)),
+                                 dtype=float).copy()
+    return line
 
 
 def geometric_racing_line(track):
     """V1 placeholder racing line: the track centerline itself."""
-    return {"s": track.s.copy(), "x": track.x.copy(), "y": track.y.copy(),
+    line = {"s": track.s.copy(), "x": track.x.copy(), "y": track.y.copy(),
             "curvature": track.curvature.copy(),
             "offset": np.zeros_like(track.s)}
+    return _line_elevation(line, track)
 
 
 def apex_bias_m(vehicle) -> float:
@@ -138,14 +155,14 @@ def line_from_offset(track, offset, edge_margin=0.5):
         A * np.sin(track.heading) + n_s * np.cos(track.heading),
         A * np.cos(track.heading) - n_s * np.sin(track.heading),
     ))
-    return {
+    return _line_elevation({
         "s": track.s.copy(),
         "x": x,
         "y": y,
         "curvature": curvature,
         "heading": heading,
         "offset": offset,
-    }
+    }, track)
 
 
 def shaped_racing_line(track, vehicle=None, n_out_frac=0.70, n_in_frac=0.75,
@@ -221,16 +238,27 @@ def compute_speed_profile(track, vehicle, tire, line=None, safety_factor=1.0,
     u_scale
         Optional per-sample multiplier on u_max (Phase 10c μ(T)). Length n
         or a scalar. Default 1 (temperature not yet applied).
+
+    Elevation (z on the line / track): tire/aero accel is unchanged; the
+    kinematic update is v² += 2 (a − g sin θ) ds_3d. Corner N uses
+    mg cos(θ) + m v² κ_v.
     """
     if line is None:
         line = geometric_racing_line(track)
+    elif "z" not in line:
+        line = _line_elevation(dict(line), track)
     u_max = safety_factor if u_max is None else u_max
 
     s = line["s"]
     n = len(s)
     # Use the actual polyline spacing. Centerline `s` over-states the length
     # of a line that cuts a corner, which biased QSS against a real racing line.
-    ds = _path_segment_lengths(line["x"], line["y"])
+    ds_xy = _path_segment_lengths(line["x"], line["y"])
+    z = np.asarray(line.get("z", np.zeros(n)), dtype=float)
+    sin_pt = np.asarray(line.get("sin_theta", np.zeros(n)), dtype=float)
+    cos_pt = np.asarray(line.get("cos_theta", np.ones(n)), dtype=float)
+    kappa_v = np.asarray(line.get("kappa_v", np.zeros(n)), dtype=float)
+    sin_seg, ds = segment_grade(z, ds_xy)
     curvature = line["curvature"]
     if u_scale is None:
         scale = np.ones(n, dtype=float)
@@ -239,8 +267,11 @@ def compute_speed_profile(track, vehicle, tire, line=None, safety_factor=1.0,
                         0.05, 1.0)
 
     v_corner = np.array([
-        corner_speed_limit(k, vehicle, tire, rho=rho, u_max=u_max * sc)
-        for k, sc in zip(curvature, scale)
+        corner_speed_limit(
+            k, vehicle, tire, rho=rho, u_max=u_max * sc,
+            cos_theta=ct, kappa_v=kv,
+        )
+        for k, sc, ct, kv in zip(curvature, scale, cos_pt, kappa_v)
     ])
 
     start_idx = int(np.argmin(v_corner))
@@ -252,11 +283,13 @@ def compute_speed_profile(track, vehicle, tire, line=None, safety_factor=1.0,
             i_prev = order[j - 1]
             i_cur = order[j]
             seg_len = ds[i_prev]
-            a_max = max_traction_accel(
+            a_tire = max_traction_accel(
                 vehicle, tire, v[i_prev], rho=rho,
                 curvature=curvature[i_prev], u_max=u_max * scale[i_prev],
+                cos_theta=cos_pt[i_prev], kappa_v=kappa_v[i_prev],
             )
-            v_reachable = np.sqrt(max(v[i_prev] ** 2 + 2 * a_max * seg_len, 0.0))
+            a_path = a_tire - G * sin_seg[i_prev]
+            v_reachable = np.sqrt(max(v[i_prev] ** 2 + 2 * a_path * seg_len, 0.0))
             v[i_cur] = min(v_corner[i_cur], v_reachable)
 
         for j in range(n - 1, -1, -1):
@@ -265,21 +298,28 @@ def compute_speed_profile(track, vehicle, tire, line=None, safety_factor=1.0,
                 continue
             i_next = order[(j + 1) % n]
             seg_len = ds[i_cur]
-            a_max = max_braking_decel(
+            a_brake = max_braking_decel(
                 vehicle, tire, v[i_next], rho=rho,
                 curvature=curvature[i_next], u_max=u_max * scale[i_next],
+                cos_theta=cos_pt[i_next], kappa_v=kappa_v[i_next],
             )
-            v_reachable = np.sqrt(max(v[i_next] ** 2 + 2 * a_max * seg_len, 0.0))
+            a_path = -a_brake - G * sin_seg[i_cur]
+            v_reachable = np.sqrt(max(v[i_next] ** 2 - 2 * a_path * seg_len, 0.0))
             v[i_cur] = min(v[i_cur], v_reachable)
 
     return {
         "s": s,
         "x": line["x"],
         "y": line["y"],
+        "z": z,
         "curvature": curvature,
+        "sin_theta": sin_pt,
+        "cos_theta": cos_pt,
+        "kappa_v": kappa_v,
         "v_corner_limit": v_corner,
         "v": v,
         "ds": ds,
+        "ds_xy": ds_xy,
         "offset": np.asarray(line.get("offset", np.zeros_like(s)), dtype=float),
         "u_max": float(u_max),
         "u_scale": scale,

@@ -8,10 +8,12 @@ Attack is still minimum-time. Race/Safe leave grip and wall margin.
 
 Phase 6 weather scales tire grip (dry/damp/wet) and air density from ambient
 temperature. Phase 10c uses ambient/track temp for lumped tire heat. It does
-not model standing water or a wet line.
+not model standing water or a wet line. Track z(s) is used by QSS (grade
+and vertical curvature); it is not banking.
 """
 
 from dataclasses import dataclass, replace
+import numpy as np
 from src.optimization.racing_line import (
     geometric_racing_line, shaped_racing_line,
 )
@@ -128,6 +130,9 @@ class Simulator:
             t_amb, t0, t0,
         )
         telemetry.update({
+            "z": profile.get("z", np.zeros_like(profile["s"])),
+            "sin_theta": profile.get("sin_theta", np.zeros_like(profile["s"])),
+            "kappa_v": profile.get("kappa_v", np.zeros_like(profile["s"])),
             "u": metrics["u"],
             "u_front": metrics["u_front"],
             "u_rear": metrics["u_rear"],

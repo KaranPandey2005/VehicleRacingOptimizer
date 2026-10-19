@@ -121,7 +121,7 @@ def test_centerline_from_xy_circle_closes_with_expected_curvature():
 def test_spa_francorchamps_loads_and_is_closed():
     track = Track.spa_francorchamps()
     assert track.is_closed(tol=2.0)
-    # Official F1 length is 7004 m; OSM-derived 2D centerline should be nearby.
+    # Official F1 length is 7004 m; OSM-derived centerline should be nearby.
     assert 6500.0 < track.length < 7500.0
     assert track.width > 8.0
 

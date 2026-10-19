@@ -230,7 +230,8 @@ def chicane_circuit_segments(
     return segments, start_pose
 
 
-def centerline_from_xy(x, y, ds: float = 1.0, closed: bool = True, smooth_window: int = 51):
+def centerline_from_xy(x, y, ds: float = 1.0, closed: bool = True, smooth_window: int = 51,
+                       z=None):
     """
     Build an arc-length centerline (s, x, y, heading, curvature) from a
     polyline. Used for imported real circuits that are not Straight/Arc
@@ -238,7 +239,8 @@ def centerline_from_xy(x, y, ds: float = 1.0, closed: bool = True, smooth_window
 
     Heading is atan2 of consecutive segments; curvature is d(heading)/ds
     after optional Savitzky-Golay smoothing so GPS/OSM kinks do not create
-    impossible corner-speed spikes.
+    impossible corner-speed spikes. Optional z is interpolated on the same
+    arc-length grid (centerline height, not banking).
     """
     from scipy.signal import savgol_filter
 
@@ -246,10 +248,15 @@ def centerline_from_xy(x, y, ds: float = 1.0, closed: bool = True, smooth_window
     y = np.asarray(y, dtype=float)
     if x.size < 3 or x.size != y.size:
         raise ValueError("Need at least 3 (x, y) points of equal length.")
+    z_in = None if z is None else np.asarray(z, dtype=float)
+    if z_in is not None and z_in.size != x.size:
+        raise ValueError("z must be the same length as x and y.")
 
     if closed and np.hypot(x[0] - x[-1], y[0] - y[-1]) > 1e-9:
         x = np.concatenate([x, x[:1]])
         y = np.concatenate([y, y[:1]])
+        if z_in is not None:
+            z_in = np.concatenate([z_in, z_in[:1]])
 
     seg = np.hypot(np.diff(x), np.diff(y))
     s_raw = np.concatenate([[0.0], np.cumsum(seg)])
@@ -259,6 +266,7 @@ def centerline_from_xy(x, y, ds: float = 1.0, closed: bool = True, smooth_window
 
     x_u = np.interp(s_uniform, s_raw, x)
     y_u = np.interp(s_uniform, s_raw, y)
+    z_u = None if z_in is None else np.interp(s_uniform, s_raw, z_in)
 
     dx = np.empty_like(x_u)
     dy = np.empty_like(y_u)
@@ -313,13 +321,16 @@ def centerline_from_xy(x, y, ds: float = 1.0, closed: bool = True, smooth_window
     else:
         curvature = np.gradient(heading, s_uniform)
 
-    return {
+    out = {
         "s": s_uniform,
         "x": x_u,
         "y": y_u,
         "heading": heading,
         "curvature": curvature,
     }
+    if z_u is not None:
+        out["z"] = z_u
+    return out
 
 
 def resample_uniform(data: dict, ds: float) -> dict:
@@ -329,6 +340,8 @@ def resample_uniform(data: dict, ds: float) -> dict:
     out = {"s": s_uniform}
     for key in ("x", "y", "curvature"):
         out[key] = np.interp(s_uniform, s, data[key])
+    if "z" in data:
+        out["z"] = np.interp(s_uniform, s, data["z"])
     # heading needs unwrap-safe interpolation
     heading_unwrapped = np.unwrap(data["heading"])
     out["heading"] = np.interp(s_uniform, s, heading_unwrapped)

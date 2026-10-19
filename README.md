@@ -6,7 +6,7 @@ engineering goal of this project is that the result should depend on **which
 car** you simulate, not just the track shape.
 
 > **Status:** Phases 1–8 plus Phase 10a–10c physics (torque/axle split,
-> Pacejka bicycle tires, lumped thermal/wear).
+> Pacejka bicycle tires, lumped thermal/wear) and centerline elevation z(s).
 > Nothing here is validated against a real vehicle or track unless explicitly
 > stated — treat all numbers as illustrative engineering-simulation output,
 > not ground truth.
@@ -34,8 +34,8 @@ car** you simulate, not just the track shape.
 - Every completed lap (including unvalidated / fallback runs) appends one row
   to `data/results/runs.db` (tracked in git).
 
-**Deferred:** elevation, a true wet line, validation against real laps
-(Phase 9). Next physics: elevation.
+**Deferred:** banking (a 3D track surface), a true wet line, validation
+against real laps (Phase 9). Next physics: a true wet line.
 
 ## Quick start
 
@@ -60,7 +60,8 @@ VehicleRacingOptimizer/
 ├── src/
 │   ├── track/
 │   │   ├── geometry.py      # analytic straight/arc segment builder (turtle graphics)
-│   │   └── track.py         # Track class: centerline, boundaries, curvature queries
+│   │   ├── elevation.py     # z(s), grade, vertical curvature (not banking)
+│   │   └── track.py         # Track class: centerline, z, boundaries, curvature queries
 │   ├── vehicle/
 │   │   ├── vehicle.py       # Vehicle config dataclass, JSON load/save
 │   │   ├── powertrain.py    # torque curve × gears (Phase 10a)
@@ -143,6 +144,13 @@ two-pass (QSS at track temp → T(s) → QSS with μ(T)), so the racing line is
 not a cold-start μ. Spa + optimized is much slower because of this. Not a
 3-zone carcass or a race stint.
 
+**Elevation** (`track/elevation.py`, `physics/dynamics.py`): the road has a
+centerline height `z(s)` (same left and right — not Zandvoort-style banking).
+Path accel in QSS is `a_tire_aero − g sin(θ)` along the 3D segment.
+Normal load is `mg cos(θ) + aero + m v² κ_v` (dip compresses, crest unloads).
+The rounded rectangle stays flat unless you call `Track.with_hill`. Spa uses
+an illustrative Eau Rouge valley on the TUM 2D centerline, not a survey.
+
 **Cornering speed limit** (`physics/dynamics.py`): bicycle yaw balance
 asks each axle for `Fy` in proportion to its lever arm. The slower of the
 two axles to `D_y` sets `v`. With constant μ and no aero both axles
@@ -175,7 +183,9 @@ worse. This is not a crash-probability model. Tire temperature is Phase 10c.
   elliptical combined-slip envelope, lumped load sensitivity, and a one-lump
   thermal/wear pass. **Not yet:** compound, camber, inflation, left/right
   load transfer, or multi-lap stint degradation.
-- No elevation. Extra track layouts are factory functions on the existing
+- Elevation is centerline `z(s)` only. No banking / camber, no left-right
+  height map. Spa’s valley is illustrative, not a measured DEM.
+- Extra track layouts are factory functions on the existing
   `Straight`/`Arc` builder, not a redesign.
 - Weather is a dry/damp/wet grip scale (and optional air density from
   ambient temperature) — not a wet line or rain model.
@@ -198,9 +208,10 @@ worse. This is not a crash-probability model. Tire temperature is Phase 10c.
 | 10a | Torque curve + F/R split / load transfer | ✅ Done |
 | 10b | Pacejka / bicycle tires | ✅ Done |
 | 10c | Lumped thermal / wear | ✅ Done |
+| — | Centerline elevation z(s) | ✅ Done (not banking) |
 | 11 | Measured track from 2D LiDAR | Future goal |
 
-Later physics: elevation, a true wet racing line.
+Later physics: a true wet racing line, banking.
 
 ### Phase 11: Measured track from 2D LiDAR
 
