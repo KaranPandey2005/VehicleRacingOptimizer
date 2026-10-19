@@ -145,11 +145,14 @@ not a cold-start μ. Spa + optimized is much slower because of this. Not a
 3-zone carcass or a race stint.
 
 **Elevation** (`track/elevation.py`, `physics/dynamics.py`): the road has a
-centerline height `z(s)` (same left and right — not Zandvoort-style banking).
-Path accel in QSS is `a_tire_aero − g sin(θ)` along the 3D segment.
+height `z(s)` defined on the centerline and used by **every** racing line
+(centerline, shaped, and optimized). Same height left and right — not
+Zandvoort-style banking, so optimizing `n(s)` cannot pick a higher/lower
+groove. Path accel in QSS is `a_tire_aero − g sin(θ)` along the 3D segment.
 Normal load is `mg cos(θ) + aero + m v² κ_v` (dip compresses, crest unloads).
-The rounded rectangle stays flat unless you call `Track.with_hill`. Spa uses
-an illustrative Eau Rouge valley on the TUM 2D centerline, not a survey.
+The rounded rectangle stays flat unless you call `Track.with_hill`. Spa `z(s)`
+is the circuit’s published altitude vs 7004 m chainage (AMSL), scaled onto
+the TUM/OSM centerline — not a DEM or laser survey.
 
 **Cornering speed limit** (`physics/dynamics.py`): bicycle yaw balance
 asks each axle for `Fy` in proportion to its lever arm. The slower of the
@@ -184,7 +187,8 @@ worse. This is not a crash-probability model. Tire temperature is Phase 10c.
   thermal/wear pass. **Not yet:** compound, camber, inflation, left/right
   load transfer, or multi-lap stint degradation.
 - Elevation is centerline `z(s)` only. No banking / camber, no left-right
-  height map. Spa’s valley is illustrative, not a measured DEM.
+  height map. Spa heights are published circuit-plan altitudes interpolated
+  between stations, not a measured DEM.
 - Extra track layouts are factory functions on the existing
   `Straight`/`Arc` builder, not a redesign.
 - Weather is a dry/damp/wet grip scale (and optional air density from

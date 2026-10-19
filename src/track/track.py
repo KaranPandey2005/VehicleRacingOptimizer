@@ -19,7 +19,7 @@ from src.track.geometry import (
     chicane_circuit_segments, resample_uniform, centerline_from_xy,
 )
 from src.track.elevation import (
-    cosine_hill, illustrative_spa_z, path_segment_lengths_xy, slope_arrays,
+    cosine_hill, official_spa_z, path_segment_lengths_xy, slope_arrays,
 )
 
 _TRACKS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data", "tracks")
@@ -124,15 +124,16 @@ class Track:
         Circuit de Spa-Francorchamps (Belgium), ~7 km.
 
         Centerline is the OpenStreetMap-derived, smoothed polyline from the
-        TUM FTM racetrack database. Height z(s) is an illustrative Eau Rouge
-        valley / Kemmel climb, not a licensed survey. Not banking.
+        TUM FTM racetrack database. Height z(s) is the circuit's published
+        altitude vs 7004 m chainage, scaled onto this polyline — not a DEM
+        or laser survey. Not banking.
         """
         path = os.path.join(_TRACKS_DIR, "spa.csv")
         track = cls.from_centerline_csv(
             path, width=track_width, ds=ds, smooth_window=smooth_window, name=name,
         )
         if float(np.ptp(track.z)) < 0.01:
-            track = track.with_z(illustrative_spa_z(track.s, track.length), name=name)
+            track = track.with_z(official_spa_z(track.s, track.length), name=name)
         return track
 
     # ------------------------------------------------------------------ #

@@ -33,30 +33,40 @@ def periodic_height(s, knots_s, knots_z, length):
     return _half_cosine_periodic(s, knots_s, knots_z, length)
 
 
-# Relative height (m) vs fraction of lap. Not a survey: a recognizable
-# Eau Rouge valley and Kemmel climb on the TUM/OSM 2D centerline.
-# Peak-to-trough is ~40 m, in the public ballpark for Spa.
-_SPA_Z_FRACTIONS = (
-    (0.00, 40.0),  # La Source plateau
-    (0.06, 30.0),
-    (0.11, 6.0),   # drop
-    (0.14, 0.0),   # Eau Rouge floor
-    (0.22, 30.0),  # Raidillon
-    (0.30, 38.0),  # Kemmel
-    (0.36, 44.0),  # Les Combes (high)
-    (0.48, 20.0),  # Rivage
-    (0.56, 12.0),  # Pouhon
-    (0.70, 26.0),  # Stavelot
-    (0.86, 38.0),  # Blanchimont
-    (0.97, 40.0),
-    (1.00, 40.0),
+# Official 7004 m chainage vs AMSL (m) from the Circuit de Spa-Francorchamps
+# public track plan (not a laser survey, not a DEM). Scaled onto the TUM/OSM
+# centerline length in official_spa_z.
+# https://ser2026.racspa.be/docs/CircuitdeSpa-Francorchamps-Fulltrack.pdf
+SPA_OFFICIAL_LENGTH_M = 7004.0
+SPA_OFFICIAL_ALT_M = (
+    (0.0, 418.0),
+    (220.0, 424.0),
+    (310.0, 419.0),
+    (690.0, 403.0),
+    (890.0, 391.0),    # Eau Rouge floor
+    (1130.0, 415.0),   # Raidillon
+    (1490.0, 446.0),   # Kemmel
+    (2200.0, 463.0),
+    (2470.0, 470.0),   # Les Combes / Malmedy (high)
+    (2870.0, 455.0),
+    (3110.0, 438.0),
+    (3600.0, 402.0),
+    (4280.0, 377.0),
+    (4740.0, 375.0),
+    (5100.0, 373.0),   # Paul Frère (lap low)
+    (5700.0, 388.0),
+    (6000.0, 398.0),
+    (6540.0, 408.0),
+    (7004.0, 418.0),
 )
 
 
-def illustrative_spa_z(s, length):
+def official_spa_z(s, length):
+    """Interpolate published Spa altitudes onto a centerline of given length."""
     length = float(length)
-    knots_s = np.array([f * length for f, _z in _SPA_Z_FRACTIONS], dtype=float)
-    knots_z = np.array([z for _f, z in _SPA_Z_FRACTIONS], dtype=float)
+    scale = length / SPA_OFFICIAL_LENGTH_M
+    knots_s = np.array([s_m * scale for s_m, _alt in SPA_OFFICIAL_ALT_M], dtype=float)
+    knots_z = np.array([alt for _s_m, alt in SPA_OFFICIAL_ALT_M], dtype=float)
     return periodic_height(s, knots_s, knots_z, length)
 
 

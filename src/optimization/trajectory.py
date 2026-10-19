@@ -326,8 +326,12 @@ def optimized_racing_line(track, vehicle, tire, safety_factor=1.0,
     apex_shift = apex_bias_m(vehicle)
     n_z = 2 * len(corners)
     if verbose:
+        z_note = ""
+        z_arr = getattr(track, "z", None)
+        if z_arr is not None and float(np.ptp(np.asarray(z_arr, dtype=float))) > 0.25:
+            z_note = ", with elevation"
         print(f"Phase 5: optimizing {len(corners)} corners "
-              f"({n_z} decision variables), thermally consistent QSS.")
+              f"({n_z} decision variables), thermally consistent QSS{z_note}.")
 
     try:
         z = _greedy_corners_qss(

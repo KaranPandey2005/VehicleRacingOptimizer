@@ -80,12 +80,35 @@ def test_hill_lap_is_slower_and_climb_is_slower_than_flat():
     assert r_hill.profile["v"][i_climb] < r_flat.profile["v"][i_climb] - 0.2
 
 
-def test_spa_has_an_eau_rouge_valley():
+def test_optimizer_qss_on_an_offset_line_sees_the_hill():
+    """Greedy/CasADi cost is QSS on the offset path, and that path carries z(s)."""
+    from src.optimization.trajectory import _detect_corners, _qss_lap
+
+    flat = default_track()
+    hill = flat.with_hill(s_center=140.0, width=200.0, height=20.0)
+    vehicle = Vehicle()
+    tire = TireModel(mu=vehicle.tire_mu)
+    corners = _detect_corners(flat)
+    z_dec = np.full(2 * len(corners), 0.55)
+    _c_f, t_flat, line_f = _qss_lap(
+        flat, vehicle, tire, 1.0, z_dec, corners, 0.5,
+    )
+    _c_h, t_hill, line_h = _qss_lap(
+        hill, vehicle, tire, 1.0, z_dec, corners, 0.5,
+    )
+    assert float(np.max(np.abs(line_f["offset"]))) > 0.2
+    assert np.allclose(line_h["z"], hill.z)
+    assert t_hill > t_flat + 0.05
+
+
+def test_spa_matches_published_circuit_altitudes():
     track = Track.spa_francorchamps()
-    assert float(np.ptp(track.z)) > 25.0
+    ptp = float(np.ptp(track.z))
+    assert 90.0 < ptp < 110.0
+    eau = (track.s > 700.0) & (track.s < 1100.0)
+    assert 385.0 < float(np.min(track.z[eau])) < 400.0
+    combes = (track.s > 2300.0) & (track.s < 2700.0)
+    assert 460.0 < float(np.max(track.z[combes])) < 480.0
     i_low = int(np.argmin(track.z))
-    s_low = float(track.s[i_low])
-    # Named window for Eau Rouge on the TUM/OSM centerline.
-    assert 600.0 < s_low < 1300.0
-    i_high = int(np.argmax(track.z))
-    assert float(track.s[i_high]) > 2000.0
+    assert 4900.0 < float(track.s[i_low]) < 5400.0
+    assert 365.0 < float(track.z[i_low]) < 380.0

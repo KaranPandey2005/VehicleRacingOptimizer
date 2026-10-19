@@ -5,5 +5,7 @@ spa.csv
   Original GPS from OpenStreetMap, smoothed by TUM FTM.
   License: GNU LGPL v3 (see that repository).
   2D centerline (x, y, widths) from TUM FTM.
-  Height z(s) is applied in Track.spa_francorchamps() as an illustrative
-  Eau Rouge valley / Kemmel climb — not a licensed survey, not banking.
+  Height z(s) is applied in Track.spa_francorchamps() from the Circuit de
+  Spa-Francorchamps public track plan (altitude vs 7004 m chainage, AMSL):
+    https://ser2026.racspa.be/docs/CircuitdeSpa-Francorchamps-Fulltrack.pdf
+  Interpolated onto this polyline; not a DEM or laser survey; not banking.
