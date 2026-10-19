@@ -18,14 +18,15 @@ is an ellipse so leftover drive/brake can use D_x ≠ D_y.
 
 Drive uses only the driven axle(s). Brakes use brake_bias_front vs leftover.
 
-Cornering with lambda = 0 and no aero still matches v = sqrt(mu g r) at 1g.
+On a grade, the corner cap is combined slip at a_path = 0 (Fx = drag + mg sin θ),
+not pure lateral. Flat-road lambda = 0 and no aero still matches v = sqrt(mu g r).
 """
 
 import numpy as np
 from src.vehicle.aero import drag_force, downforce, RHO_AIR_SEA_LEVEL
-from src.vehicle.bicycle import lever_arms, lateral_axle_forces
+from src.vehicle.bicycle import lever_arms, lateral_axle_forces, split_longitudinal_force
 from src.vehicle.powertrain import max_engine_drive_force
-from src.vehicle.tires import combined_slip_fx
+from src.vehicle.tires import combined_slip_fx, combined_slip_fy
 
 G = 9.81  # m/s^2
 
@@ -200,14 +201,16 @@ def _corner_speed_constant_mu(k, vehicle, tire, rho, u_max, cos_theta=1.0,
 
 
 def corner_speed_limit(curvature, vehicle, tire, rho=RHO_AIR_SEA_LEVEL,
-                       u_max=1.0, cos_theta=1.0, kappa_v=0.0):
+                       u_max=1.0, cos_theta=1.0, kappa_v=0.0, sin_theta=0.0):
     """
     Maximum speed (m/s) at which the car can hold a corner of given curvature
-    (1/m) at utilization u_max (pure lateral, a_x = 0).
+    (1/m) at utilization u_max.
 
-    Bicycle: the slower of the two axles to D_y. With no aero, constant mu,
-    and a flat road both axles saturate together at v = sqrt(mu g r).
-    Grade uses N = mg cos(θ) + m v² κ_v (crest unloads, dip compresses).
+    Flat: pure lateral, a_x = 0. Bicycle: the slower of the two axles to D_y.
+    With no aero and constant mu both axles saturate at v = sqrt(mu g r).
+
+    Grade (a_path = 0): F_x = drag + m g sin(θ) eats the ellipse, and load
+    transfer uses a_lon = g sin(θ). N still includes mg cos(θ) + m v² κ_v.
     """
     k = abs(curvature)
     if k < 1e-9:
@@ -216,23 +219,38 @@ def corner_speed_limit(curvature, vehicle, tire, rho=RHO_AIR_SEA_LEVEL,
     u_max = float(u_max)
     cos_theta = float(cos_theta)
     kappa_v = float(kappa_v)
+    sin_theta = float(sin_theta)
     no_aero = abs(float(vehicle.downforce_coefficient)) < 1e-12
-    if no_aero and abs(tire.load_sensitivity) < 1e-12:
+    flat = abs(sin_theta) < 1e-9
+    if flat and no_aero and abs(tire.load_sensitivity) < 1e-12:
         return _corner_speed_constant_mu(
             k, vehicle, tire, rho, u_max, cos_theta=cos_theta, kappa_v=kappa_v,
         )
 
     m = vehicle.mass
+    a_lon = 0.0 if flat else G * sin_theta
 
     def residual(vs):
         vs = max(vs, 0.0)
         v = np.sqrt(vs)
-        dy_f, dy_r, _nf, _nr = axle_grip(
-            vehicle, tire, v, a_lon=0.0, rho=rho, u_max=u_max,
+        dx_f, dy_f, dx_r, dy_r, _nf, _nr = axle_peaks(
+            vehicle, tire, v, a_lon=a_lon, rho=rho, u_max=u_max,
             cos_theta=cos_theta, kappa_v=kappa_v,
         )
         fy_f, fy_r = lateral_axle_forces(vehicle, m * vs * k)
-        return max(fy_f - dy_f, fy_r - dy_r)
+        if flat:
+            return max(fy_f - dy_f, fy_r - dy_r)
+        f_drag = drag_force(vehicle, v, rho=rho)
+        fx_need = f_drag + m * G * sin_theta
+        if fx_need >= 0.0:
+            if fx_need > max_engine_drive_force(vehicle, max(v, 0.1)) + 1e-6:
+                return 1.0
+        elif -fx_need > float(vehicle.max_brake_force) + 1e-6:
+            return 1.0
+        fx_f, fx_r = split_longitudinal_force(vehicle, fx_need)
+        dy_f_left = combined_slip_fy(dy_f, fx_f, dx_f)
+        dy_r_left = combined_slip_fy(dy_r, fx_r, dx_r)
+        return max(fy_f - dy_f_left, fy_r - dy_r_left)
 
     vs_hi = vehicle.top_speed ** 2
     r0 = residual(0.0)

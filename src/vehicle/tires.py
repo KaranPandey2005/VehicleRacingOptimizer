@@ -177,6 +177,24 @@ def combined_slip_fx(f_x_peak, f_lat, f_y_peak=None):
     return leftover
 
 
+def combined_slip_fy(f_y_peak, f_x, f_x_peak=None):
+    """
+    Lateral force still available after spending f_x on drive/brake.
+
+    Inverse of combined_slip_fx on the same ellipse.
+    """
+    dy = np.maximum(f_y_peak, 0.0)
+    dx = dy if f_x_peak is None else np.maximum(f_x_peak, 0.0)
+    fx = np.abs(f_x)
+    dx_safe = np.maximum(dx, 1e-12)
+    ratio = fx / dx_safe
+    leftover = dy * np.sqrt(np.maximum(1.0 - ratio * ratio, 0.0))
+    leftover = np.where(np.asarray(dx) <= 0.0, 0.0, leftover)
+    if np.ndim(leftover) == 0:
+        return float(leftover)
+    return leftover
+
+
 def friction_utilization(f_x, f_y, f_x_peak, f_y_peak=None):
     """u = hypot(Fx/Dx, Fy/Dy). 1.0 is the combined-slip limit."""
     dx = np.maximum(f_x_peak, 1.0)

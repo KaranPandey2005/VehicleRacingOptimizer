@@ -48,6 +48,18 @@ def test_corner_speed_matches_mu_g_r_cos_theta():
     assert np.isclose(v, np.sqrt(tire.mu * G * radius * cos_th), rtol=1e-6)
 
 
+def test_uphill_and_downhill_combined_slip_lower_corner_speed():
+    vehicle = Vehicle(mass=1200.0, downforce_coefficient=0.0, drag_coefficient=0.0,
+                      tire_mu=1.2, top_speed=100.0, max_brake_force=20000.0)
+    tire = TireModel(mu=1.2, load_sensitivity=0.0)
+    k = 1.0 / 50.0
+    v_flat = corner_speed_limit(k, vehicle, tire, sin_theta=0.0, cos_theta=1.0)
+    v_up = corner_speed_limit(k, vehicle, tire, sin_theta=0.12, cos_theta=1.0)
+    v_down = corner_speed_limit(k, vehicle, tire, sin_theta=-0.12, cos_theta=1.0)
+    assert v_up < v_flat - 0.3
+    assert v_down < v_flat - 0.3
+
+
 def test_crest_unloads_and_dip_adds_grip():
     vehicle = Vehicle(mass=1200.0, downforce_coefficient=0.0, drag_coefficient=0.0,
                       tire_mu=1.2, top_speed=100.0)

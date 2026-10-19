@@ -156,10 +156,11 @@ the TUM/OSM centerline — not a DEM or laser survey.
 
 **Cornering speed limit** (`physics/dynamics.py`): bicycle yaw balance
 asks each axle for `Fy` in proportion to its lever arm. The slower of the
-two axles to `D_y` sets `v`. With constant μ and no aero both axles
-saturate together and this is still the textbook `v_max = sqrt(mu*g*r)` —
-verified by a dedicated test. With aero or load sensitivity the solver
-bisects on `v^2`.
+two axles to `D_y` sets `v`. With constant μ and no aero on a flat road
+both axles saturate together at `v_max = sqrt(mu*g*r)` — verified by a
+dedicated test. On a grade the cap is combined slip at `a_path = 0`
+(`F_x = drag + m g sin θ`, load transfer `a_lon = g sin θ`), not pure
+lateral. With aero or load sensitivity the solver bisects on `v^2`.
 
 **Speed profile solver** (`optimization/racing_line.py`): the standard
 forward-backward quasi-steady-state pass. Start at the point with the lowest

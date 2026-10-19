@@ -241,7 +241,8 @@ def compute_speed_profile(track, vehicle, tire, line=None, safety_factor=1.0,
 
     Elevation (z on the line / track): tire/aero accel is unchanged; the
     kinematic update is v² += 2 (a − g sin θ) ds_3d. Corner N uses
-    mg cos(θ) + m v² κ_v.
+    mg cos(θ) + m v² κ_v. On a grade the corner cap is combined slip at
+    a_path = 0 (F_x = drag + m g sin θ), not pure lateral.
     """
     if line is None:
         line = geometric_racing_line(track)
@@ -269,9 +270,9 @@ def compute_speed_profile(track, vehicle, tire, line=None, safety_factor=1.0,
     v_corner = np.array([
         corner_speed_limit(
             k, vehicle, tire, rho=rho, u_max=u_max * sc,
-            cos_theta=ct, kappa_v=kv,
+            cos_theta=ct, kappa_v=kv, sin_theta=st,
         )
-        for k, sc, ct, kv in zip(curvature, scale, cos_pt, kappa_v)
+        for k, sc, ct, kv, st in zip(curvature, scale, cos_pt, kappa_v, sin_pt)
     ])
 
     start_idx = int(np.argmin(v_corner))
