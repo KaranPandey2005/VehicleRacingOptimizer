@@ -6,7 +6,8 @@ engineering goal of this project is that the result should depend on **which
 car** you simulate, not just the track shape.
 
 > **Status:** Phases 1–8 plus Phase 10a–10c physics (torque/axle split,
-> Pacejka bicycle tires, lumped thermal/wear) and centerline elevation z(s).
+> Pacejka bicycle tires, lumped thermal/wear), centerline elevation z(s),
+> and a spatial wet line μ(s,n).
 > Nothing here is validated against a real vehicle or track unless explicitly
 > stated — treat all numbers as illustrative engineering-simulation output,
 > not ground truth.
@@ -34,8 +35,8 @@ car** you simulate, not just the track shape.
 - Every completed lap (including unvalidated / fallback runs) appends one row
   to `data/results/runs.db` (tracked in git).
 
-**Deferred:** banking (a 3D track surface), a true wet line, validation
-against real laps (Phase 9). Next physics: a true wet line.
+**Deferred:** banking (a 3D track surface) and validation against real
+laps (Phase 9).
 
 ## Quick start
 
@@ -70,7 +71,8 @@ VehicleRacingOptimizer/
 │   │   ├── thermal.py       # lumped T(s) + wear index (Phase 10c)
 │   │   └── aero.py          # drag / downforce (quadratic-in-speed)
 │   ├── weather/
-│   │   └── weather.py       # dry/damp/wet grip + air density
+│   │   ├── weather.py       # dry/damp uniform grip + air density
+│   │   └── wet_line.py      # wet μ(s,n): rubber corridor + puddles
 │   ├── physics/
 │   │   └── dynamics.py      # corner-speed limit, traction accel limit, braking decel limit
 │   ├── optimization/
@@ -192,8 +194,10 @@ worse. This is not a crash-probability model. Tire temperature is Phase 10c.
   between stations, not a measured DEM.
 - Extra track layouts are factory functions on the existing
   `Straight`/`Arc` builder, not a redesign.
-- Weather is a dry/damp/wet grip scale (and optional air density from
-  ambient temperature) — not a wet line or rain model.
+- Weather: dry/damp are a uniform grip scale; wet is combined slip on a
+  deterministic μ(s,n) (rubber stripe + geometry puddles), not a rain
+  intensity or standing-water CFD model. Air density still follows
+  ambient temperature.
 - No vehicle has been validated against real-world data — vehicle JSON
   files are clearly labeled "illustrative, unvalidated."
 
@@ -206,7 +210,7 @@ worse. This is not a crash-probability model. Tire temperature is Phase 10c.
 | 3 | Geometric racing line + speed profile + lap time | ✅ Done |
 | 4 | Vehicle-specific heuristic line (`shaped`) | ✅ Done (experimental; often slower) |
 | 5 | Nonlinear / time-optimal line (`optimized`) | ✅ Done |
-| 6 | Weather (wire up `weather.py`) | ✅ Done (grip lookup + air density) |
+| 6 | Weather (wire up `weather.py`) | ✅ Done (damp scale + wet μ(s,n)) |
 | 7 | Safety model + friction-circle / load-sensitive tires | ✅ Done |
 | 8 | PySide6 GUI | ✅ Done |
 | 9 | Validation against real data / other simulators | Planned (after more physics) |
@@ -214,9 +218,10 @@ worse. This is not a crash-probability model. Tire temperature is Phase 10c.
 | 10b | Pacejka / bicycle tires | ✅ Done |
 | 10c | Lumped thermal / wear | ✅ Done |
 | — | Centerline elevation z(s) | ✅ Done (not banking) |
+| — | True wet line μ(s,n) | ✅ Done (not rain intensity) |
 | 11 | Measured track from 2D LiDAR | Future goal |
 
-Later physics: a true wet racing line, banking.
+Later physics: banking.
 
 ### Phase 11: Measured track from 2D LiDAR
 

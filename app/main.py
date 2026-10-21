@@ -82,8 +82,8 @@ def main():
         )
 
     from src.weather.weather import Weather, Condition
-    print("\n--- Phase 6 weather (Subaru BRZ, optimized line; grip lookup) ---")
-    print("Dry/damp/wet scale tire mu. Not a wet racing line or rain model.")
+    print("\n--- Phase 6 weather (Subaru BRZ, optimized line) ---")
+    print("Dry/damp scale tire mu. Wet is μ(s,n) rubber + puddles.")
     weather_results = []
     for cond in (Condition.DRY, Condition.DAMP, Condition.WET):
         wx = Weather(condition=cond)
@@ -92,7 +92,7 @@ def main():
         save_run(t)
         weather_results.append(t)
         print(f"{cond.value:4s}: lap time = {t.lap_time:.2f} s  "
-              f"(grip x{wx.grip_modifier():.2f})")
+              f"(grip x{t.grip_modifier:.2f})")
         ax = plot_speed_map(track, t)
         ax.figure.savefig(
             os.path.join(OUTPUT_DIR, f"weather_{cond.value}_speedmap.png"), dpi=150,

@@ -1,12 +1,13 @@
 """
 Weather / track-condition model (Phase 6).
 
-Wired into Simulator as a uniform grip scale (and optional air density from
-ambient temperature). Placeholders are physically motivated in *direction*
-only — not measured for a real tire or circuit.
+Dry and damp are a uniform grip scale (and optional air density from
+ambient temperature). Wet is a spatial μ(s,n) in wet_line.py — rubber
+corridor plus geometry puddles — not a rain-intensity model.
 
-A later upgrade can add rain intensity and a wet racing line. Tire
-temperature uses ambient_temp_c / track_temp_c in thermal.py (Phase 10c).
+Placeholders are physically motivated in *direction* only — not measured
+for a real tire or circuit. Tire temperature uses ambient_temp_c /
+track_temp_c in thermal.py (Phase 10c).
 """
 
 from dataclasses import dataclass
@@ -21,7 +22,9 @@ class Condition(Enum):
     WET = "wet"
 
 
-# Illustrative grip multipliers vs dry (mu_effective = mu_dry * modifier).
+# Illustrative uniform multipliers vs dry. Wet is *not* applied to the
+# tire — spatial_grip_scale in wet_line.py is the wet cut. 0.65 remains
+# the documented typical-wet ballpark for plots / labels.
 GRIP_MODIFIER = {
     Condition.DRY: 1.00,
     Condition.DAMP: 0.85,

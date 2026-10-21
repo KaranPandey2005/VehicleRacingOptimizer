@@ -6,10 +6,11 @@ Phase 7 driving modes use a Pacejka-ellipse cap u_max plus the weighted
 objective J = w_time * lap_time + w_risk * wall_risk + w_tire * tire_stress.
 Attack is still minimum-time. Race/Safe leave grip and wall margin.
 
-Phase 6 weather scales tire grip (dry/damp/wet) and air density from ambient
-temperature. Phase 10c uses ambient/track temp for lumped tire heat. It does
-not model standing water or a wet line. Track z(s) is used by QSS (grade
-and vertical curvature); it is not banking.
+Phase 6 weather: dry/damp scale tire grip uniformly; wet uses a spatial
+μ(s,n) (rubber + puddles in wet_line.py) instead of the 0.65 tire scalar.
+Air density comes from ambient temperature. Phase 10c uses ambient/track
+temp for lumped tire heat. Track z(s) is used by QSS (grade and vertical
+curvature); it is not banking.
 """
 
 from dataclasses import dataclass, replace
@@ -22,10 +23,20 @@ from src.optimization.lap_time import compute_lap_time, compute_telemetry
 from src.optimization.safety import DRIVING_MODES, safety_metrics, objective_cost
 from src.vehicle.tires import TireModel
 from src.vehicle.thermal import ThermalModel, qss_with_thermal
-from src.weather.weather import Weather
+from src.weather.weather import Weather, Condition
+from src.weather.wet_line import grip_along_line
 
 # Back-compat alias: old code treated this as a uniform speed scale.
 DRIVING_MODE_SAFETY_FACTOR = {name: m.u_max for name, m in DRIVING_MODES.items()}
+
+
+def _reported_grip(tire, profile):
+    """Mean surface scale along the driven line, times the tire's own modifier."""
+    tire_scale = tire.effective_mu() / max(tire.mu, 1e-12)
+    g = profile.get("grip_s")
+    if g is None:
+        return float(tire_scale)
+    return float(np.mean(np.asarray(g, dtype=float))) * float(tire_scale)
 
 
 @dataclass
@@ -87,7 +98,10 @@ class Simulator:
         self.line_mode = line_mode
 
     def _effective_tire(self) -> TireModel:
-        # Weather grip stacks on the tire's own modifier (dry weather = ×1).
+        # Dry/damp: uniform weather scale on the tire. Wet: spatial map
+        # (wet_line.py) — do not also multiply the tire by 0.65.
+        if self.weather.condition == Condition.WET:
+            return replace(self.tire, grip_modifier=self.tire.grip_modifier)
         return replace(
             self.tire,
             grip_modifier=self.tire.grip_modifier * self.weather.grip_modifier(),
@@ -97,6 +111,7 @@ class Simulator:
         tire = self._effective_tire()
         rho = self.weather.air_density()
         mode_cfg = DRIVING_MODES[self.mode]
+        grip_s = grip_along_line(self.track, self.weather)
         if self.line_mode == "shaped":
             line = shaped_racing_line(self.track, self.vehicle)
         elif self.line_mode == "optimized":
@@ -109,6 +124,7 @@ class Simulator:
                 thermal=self.thermal,
                 t_amb_c=float(self.weather.ambient_temp_c),
                 t0_c=float(self.weather.track_temp_c),
+                grip_s=grip_s,
             )
         else:
             line = geometric_racing_line(self.track)
@@ -116,7 +132,7 @@ class Simulator:
         t0 = float(self.weather.track_temp_c)
         profile, _th = qss_with_thermal(
             self.track, self.vehicle, tire, self.thermal, line,
-            mode_cfg.u_max, rho, t_amb, t0,
+            mode_cfg.u_max, rho, t_amb, t0, grip_s=grip_s,
         )
         lap_time = compute_lap_time(profile)
         telemetry = compute_telemetry(profile)
@@ -168,7 +184,7 @@ class Simulator:
             line_mode=self.line_mode,
             used_fallback=bool(line.get("used_fallback", False)),
             weather=self.weather.condition.value,
-            grip_modifier=tire.effective_mu() / max(tire.mu, 1e-12),
+            grip_modifier=_reported_grip(tire, profile),
             u_max=mode_cfg.u_max,
             objective=objective,
         )

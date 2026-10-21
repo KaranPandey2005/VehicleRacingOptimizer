@@ -6,7 +6,8 @@ curvature) plus a track width, and derives left/right boundaries by offsetting
 the centerline along its normal direction by +/- width/2.
 
 V1 elevation is a centerline height z(s) (same left and right — not banking).
-Surface condition is handled by the weather module, not stored per-point yet.
+Wet μ(s,n) is sampled from the weather module at the line offset, not stored
+on the track.
 """
 
 from __future__ import annotations

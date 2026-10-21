@@ -46,7 +46,8 @@ def test_wet_lowers_minimum_corner_speed():
     wet = Simulator(track, vehicle, tire, mode="attack",
                     weather=Weather(condition=Condition.WET)).run()
     assert wet.telemetry["min_speed"] < dry.telemetry["min_speed"]
-    assert wet.grip_modifier == GRIP_MODIFIER[Condition.WET]
+    assert wet.grip_modifier < 1.0 - 1e-6
+    assert dry.grip_modifier == GRIP_MODIFIER[Condition.DRY]
 
 
 def test_air_density_falls_when_air_is_warmer():

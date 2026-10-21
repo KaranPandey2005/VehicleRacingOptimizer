@@ -127,9 +127,12 @@ class ThermalModel:
 
 
 def qss_with_thermal(track, vehicle, tire, thermal, line, safety_factor, rho,
-                     t_amb_c, t0_c):
+                     t_amb_c, t0_c, grip_s=None):
     """
     Two-pass QSS: cold/track-temp grip, then μ(T(s)) from a heat march.
+
+    grip_s is an optional per-sample surface scale (wet μ(s,n)), a scalar,
+    or a callable(line). Stacked as u_scale = thermal * grip_s.
 
     Returns (profile, thermal_dict) for the second pass. The racing-line
     optimizer scores this profile; Simulator re-integrates T on it for
@@ -137,13 +140,15 @@ def qss_with_thermal(track, vehicle, tire, thermal, line, safety_factor, rho,
     """
     from src.optimization.racing_line import compute_speed_profile
     from src.optimization.safety import safety_metrics
+    from src.weather.wet_line import as_grip_array
 
     t0 = float(t0_c)
     t_amb = float(t_amb_c)
+    g = as_grip_array(grip_s, line)
     profile = compute_speed_profile(
         track, vehicle, tire, line=line,
         safety_factor=safety_factor, rho=rho,
-        u_scale=thermal.mu_factor(t0),
+        u_scale=thermal.mu_factor(t0) * g,
     )
     metrics = safety_metrics(
         profile, track, vehicle, tire, rho=rho,
@@ -157,6 +162,7 @@ def qss_with_thermal(track, vehicle, tire, thermal, line, safety_factor, rho,
     profile = compute_speed_profile(
         track, vehicle, tire, line=line,
         safety_factor=safety_factor, rho=rho,
-        u_scale=thermal.grip_scale(th["t_front"], th["t_rear"]),
+        u_scale=thermal.grip_scale(th["t_front"], th["t_rear"]) * g,
     )
+    profile["grip_s"] = g
     return profile, th

@@ -236,8 +236,9 @@ def compute_speed_profile(track, vehicle, tire, line=None, safety_factor=1.0,
         demand so you cannot trail-brake or accelerate at u = 1 in a corner.
 
     u_scale
-        Optional per-sample multiplier on u_max (Phase 10c μ(T)). Length n
-        or a scalar. Default 1 (temperature not yet applied).
+        Optional per-sample multiplier on u_max (Phase 10c μ(T), stacked
+        with wet μ(s,n) in qss_with_thermal). Length n or a scalar.
+        Default 1 (temperature / surface not yet applied).
 
     Elevation (z on the line / track): tire/aero accel is unchanged; the
     kinematic update is v² += 2 (a − g sin θ) ds_3d. Corner N uses
