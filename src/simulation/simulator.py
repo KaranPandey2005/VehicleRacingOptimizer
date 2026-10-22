@@ -10,7 +10,7 @@ Phase 6 weather: dry/damp scale tire grip uniformly; wet uses a spatial
 μ(s,n) (rubber + puddles in wet_line.py) instead of the 0.65 tire scalar.
 Air density comes from ambient temperature. Phase 10c uses ambient/track
 temp for lumped tire heat. Track z(s) is used by QSS (grade and vertical
-curvature); it is not banking.
+curvature). Optional φ(s) is bank; Spa leaves it at 0.
 """
 
 from dataclasses import dataclass, replace
@@ -149,6 +149,7 @@ class Simulator:
             "z": profile.get("z", np.zeros_like(profile["s"])),
             "sin_theta": profile.get("sin_theta", np.zeros_like(profile["s"])),
             "kappa_v": profile.get("kappa_v", np.zeros_like(profile["s"])),
+            "sin_phi": profile.get("sin_phi", np.zeros_like(profile["s"])),
             "u": metrics["u"],
             "u_front": metrics["u_front"],
             "u_rear": metrics["u_rear"],

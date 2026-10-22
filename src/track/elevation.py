@@ -1,8 +1,10 @@
 """
-Vertical track profile z(s). Not banking.
+Vertical track profile z(s) and optional bank angle φ(s).
 
-z is height along the centerline (same left and right). Grade is the
-path pitch; kappa_v is vertical curvature (dip compresses, crest unloads).
+z is height along the centerline (same left and right unless a future
+bowl). Grade is the path pitch; kappa_v is vertical curvature (dip
+compresses, crest unloads). φ is roll about the centerline, default 0.
+Spa has no bank map — do not invent one.
 """
 
 from __future__ import annotations
@@ -25,6 +27,11 @@ def cosine_hill(s, length, s_center, width, height):
     mask = np.abs(d) < half
     z[mask] = 0.5 * float(height) * (1.0 + np.cos(np.pi * d[mask] / half))
     return z
+
+
+def cosine_bank(s, length, s_center, width, phi_peak):
+    """C1-smooth bank-angle window (rad). Same shape as cosine_hill; tests only."""
+    return cosine_hill(s, length, s_center, width, phi_peak)
 
 
 def periodic_height(s, knots_s, knots_z, length):

@@ -56,7 +56,7 @@ from src.vehicle.aero import RHO_AIR_SEA_LEVEL
 
 
 def _line_elevation(line, track):
-    """Centerline height on the line (same z left/right — not banking)."""
+    """Centerline height on the line. φ is constant across the width (not a bowl)."""
     z = np.asarray(getattr(track, "z", np.zeros_like(track.s)), dtype=float)
     line["z"] = z.copy()
     line["sin_theta"] = np.asarray(getattr(track, "sin_theta", np.zeros_like(z)),
@@ -64,6 +64,12 @@ def _line_elevation(line, track):
     line["cos_theta"] = np.asarray(getattr(track, "cos_theta", np.ones_like(z)),
                                    dtype=float).copy()
     line["kappa_v"] = np.asarray(getattr(track, "kappa_v", np.zeros_like(z)),
+                                 dtype=float).copy()
+    line["phi"] = np.asarray(getattr(track, "phi", np.zeros_like(z)),
+                             dtype=float).copy()
+    line["sin_phi"] = np.asarray(getattr(track, "sin_phi", np.zeros_like(z)),
+                                 dtype=float).copy()
+    line["cos_phi"] = np.asarray(getattr(track, "cos_phi", np.ones_like(z)),
                                  dtype=float).copy()
     return line
 
@@ -242,8 +248,10 @@ def compute_speed_profile(track, vehicle, tire, line=None, safety_factor=1.0,
 
     Elevation (z on the line / track): tire/aero accel is unchanged; the
     kinematic update is v² += 2 (a − g sin θ) ds_3d. Corner N uses
-    mg cos(θ) + m v² κ_v. On a grade the corner cap is combined slip at
-    a_path = 0 (F_x = drag + m g sin θ), not pure lateral.
+    mg cos(θ)cos(φ) + m v² κ_v + m v² κ sin(φ). On a grade the corner cap
+    is combined slip at a_path = 0 (F_x = drag + m g sin θ), not pure
+    lateral. Bank φ does not add path gravity. φ = 0 unless the circuit
+    has camber (Spa does not).
     """
     if line is None:
         line = geometric_racing_line(track)
@@ -260,6 +268,7 @@ def compute_speed_profile(track, vehicle, tire, line=None, safety_factor=1.0,
     sin_pt = np.asarray(line.get("sin_theta", np.zeros(n)), dtype=float)
     cos_pt = np.asarray(line.get("cos_theta", np.ones(n)), dtype=float)
     kappa_v = np.asarray(line.get("kappa_v", np.zeros(n)), dtype=float)
+    sin_phi = np.asarray(line.get("sin_phi", np.zeros(n)), dtype=float)
     sin_seg, ds = segment_grade(z, ds_xy)
     curvature = line["curvature"]
     if u_scale is None:
@@ -271,9 +280,11 @@ def compute_speed_profile(track, vehicle, tire, line=None, safety_factor=1.0,
     v_corner = np.array([
         corner_speed_limit(
             k, vehicle, tire, rho=rho, u_max=u_max * sc,
-            cos_theta=ct, kappa_v=kv, sin_theta=st,
+            cos_theta=ct, kappa_v=kv, sin_theta=st, sin_phi=sp,
         )
-        for k, sc, ct, kv, st in zip(curvature, scale, cos_pt, kappa_v, sin_pt)
+        for k, sc, ct, kv, st, sp in zip(
+            curvature, scale, cos_pt, kappa_v, sin_pt, sin_phi,
+        )
     ])
 
     start_idx = int(np.argmin(v_corner))
@@ -289,6 +300,7 @@ def compute_speed_profile(track, vehicle, tire, line=None, safety_factor=1.0,
                 vehicle, tire, v[i_prev], rho=rho,
                 curvature=curvature[i_prev], u_max=u_max * scale[i_prev],
                 cos_theta=cos_pt[i_prev], kappa_v=kappa_v[i_prev],
+                sin_phi=sin_phi[i_prev],
             )
             a_path = a_tire - G * sin_seg[i_prev]
             v_reachable = np.sqrt(max(v[i_prev] ** 2 + 2 * a_path * seg_len, 0.0))
@@ -304,6 +316,7 @@ def compute_speed_profile(track, vehicle, tire, line=None, safety_factor=1.0,
                 vehicle, tire, v[i_next], rho=rho,
                 curvature=curvature[i_next], u_max=u_max * scale[i_next],
                 cos_theta=cos_pt[i_next], kappa_v=kappa_v[i_next],
+                sin_phi=sin_phi[i_next],
             )
             a_path = -a_brake - G * sin_seg[i_cur]
             v_reachable = np.sqrt(max(v[i_next] ** 2 - 2 * a_path * seg_len, 0.0))
@@ -318,6 +331,7 @@ def compute_speed_profile(track, vehicle, tire, line=None, safety_factor=1.0,
         "sin_theta": sin_pt,
         "cos_theta": cos_pt,
         "kappa_v": kappa_v,
+        "sin_phi": sin_phi,
         "v_corner_limit": v_corner,
         "v": v,
         "ds": ds,

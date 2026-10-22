@@ -62,12 +62,13 @@ def forces_along_profile(profile, vehicle, tire, rho=RHO_AIR_SEA_LEVEL):
     sin_th = np.asarray(profile.get("sin_theta", 0.0), dtype=float)
     cos_th = np.asarray(profile.get("cos_theta", 1.0), dtype=float)
     kappa_v = np.asarray(profile.get("kappa_v", 0.0), dtype=float)
+    sin_phi = np.asarray(profile.get("sin_phi", 0.0), dtype=float)
     # Kinematic a_lon includes -g sinθ; the ellipse wants the tire long force.
     fx = vehicle.mass * (tel["a_lon"] + G * sin_th)
-    fy = vehicle.mass * tel["a_lat"]
+    fy = vehicle.mass * tel["a_lat"] - vehicle.mass * G * sin_phi
     dx_f, dy_f, dx_r, dy_r, n_f, n_r = axle_peaks(
         vehicle, tire, v, a_lon=tel["a_lon"], rho=rho, u_max=1.0,
-        cos_theta=cos_th, kappa_v=kappa_v,
+        cos_theta=cos_th, kappa_v=kappa_v, sin_phi=sin_phi, curvature=kappa,
     )
     fy_f, fy_r = lateral_axle_forces(vehicle, fy)
     fx_f, fx_r = split_longitudinal_force(vehicle, fx)

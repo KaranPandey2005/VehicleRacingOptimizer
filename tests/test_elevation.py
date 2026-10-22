@@ -18,6 +18,7 @@ def test_flat_track_has_zero_elevation():
     assert np.allclose(track.sin_theta, 0.0, atol=1e-9)
     assert np.allclose(track.cos_theta, 1.0, atol=1e-9)
     assert np.allclose(track.kappa_v, 0.0, atol=1e-9)
+    assert np.allclose(track.phi, 0.0)
 
 
 def test_zero_z_lap_matches_implicit_flat():

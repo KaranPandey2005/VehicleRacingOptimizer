@@ -8,8 +8,10 @@ Phase 10b: Pacejka peaks D_x, D_y on a bicycle. Lateral demand is split by
 lever arms (yaw-moment balance), not by instantaneous load. Combined slip
 is an ellipse so leftover drive/brake can use D_x ≠ D_y.
 
-    N_f, N_r  = static split * cos(θ) + m v² κ_v + Cop*downforce ± m a_x h / L
+    N_f, N_r  = static split * cos(θ)cos(φ) + m v² κ_v + m v² κ sin(φ)
+                + Cop*downforce ± m a_x h / L
     Grade gravity (-g sin θ) is applied in the QSS kinematic update, not here.
+    Bank φ does not add path gravity. φ = 0 unless the circuit has camber.
     D_y,i     = u_max * μ_y(N_i) * N_i
     D_x,i     = u_max * μ_x(N_i) * N_i
     F_y,f     = (b/L) * m v^2 |kappa|
@@ -19,7 +21,8 @@ is an ellipse so leftover drive/brake can use D_x ≠ D_y.
 Drive uses only the driven axle(s). Brakes use brake_bias_front vs leftover.
 
 On a grade, the corner cap is combined slip at a_path = 0 (Fx = drag + mg sin θ),
-not pure lateral. Flat-road lambda = 0 and no aero still matches v = sqrt(mu g r).
+not pure lateral. Bank: Fy = m v² κ − m g sin φ (signed). Flat-road lambda = 0,
+no aero, and φ = 0 still matches v = sqrt(mu g r).
 """
 
 import numpy as np
@@ -31,21 +34,37 @@ from src.vehicle.tires import combined_slip_fx, combined_slip_fy
 G = 9.81  # m/s^2
 
 
-def _broadcast_grade(cos_theta, kappa_v, like):
+def _as_like(value, like):
+    arr = np.asarray(value, dtype=float)
     if isinstance(like, np.ndarray) and like.ndim > 0:
-        shape = like.shape
-        cos_theta = np.broadcast_to(np.asarray(cos_theta, dtype=float), shape)
-        kappa_v = np.broadcast_to(np.asarray(kappa_v, dtype=float), shape)
-        return cos_theta, kappa_v
-    return float(np.asarray(cos_theta).reshape(-1)[0]), float(np.asarray(kappa_v).reshape(-1)[0])
+        return np.broadcast_to(arr, like.shape)
+    return float(arr.reshape(-1)[0])
 
 
-def normal_load(vehicle, v, rho=RHO_AIR_SEA_LEVEL, cos_theta=1.0, kappa_v=0.0):
-    """Total vertical load (N): mg cos(θ) + aero + m v² κ_v."""
-    cos_theta, kappa_v = _broadcast_grade(cos_theta, kappa_v, v)
-    return (vehicle.mass * G * cos_theta
+def _broadcast_grade(cos_theta, kappa_v, like):
+    return _as_like(cos_theta, like), _as_like(kappa_v, like)
+
+
+def _cos_phi(sin_phi, like):
+    s = _as_like(sin_phi, like)
+    c = np.sqrt(np.maximum(1.0 - np.asarray(s, dtype=float) ** 2, 0.0))
+    if isinstance(like, np.ndarray) and like.ndim > 0:
+        return np.broadcast_to(np.asarray(c, dtype=float), like.shape)
+    return float(np.asarray(c).reshape(-1)[0])
+
+
+def normal_load(vehicle, v, rho=RHO_AIR_SEA_LEVEL, cos_theta=1.0, kappa_v=0.0,
+                sin_phi=0.0, curvature=0.0):
+    """Total vertical load (N): mg cos(θ)cos(φ) + aero + m v² κ_v + m v² κ sin(φ)."""
+    like = v
+    cos_theta, kappa_v = _broadcast_grade(cos_theta, kappa_v, like)
+    sin_phi = _as_like(sin_phi, like)
+    curvature = _as_like(curvature, like)
+    cos_phi = _cos_phi(sin_phi, like)
+    return (vehicle.mass * G * cos_theta * cos_phi
             + downforce(vehicle, v, rho=rho)
-            + vehicle.mass * v * v * kappa_v)
+            + vehicle.mass * v * v * kappa_v
+            + vehicle.mass * v * v * curvature * sin_phi)
 
 
 def reference_load(vehicle):
@@ -60,13 +79,14 @@ def static_axle_refs(vehicle):
 
 
 def axle_loads(vehicle, v, a_lon=0.0, rho=RHO_AIR_SEA_LEVEL,
-               cos_theta=1.0, kappa_v=0.0):
+               cos_theta=1.0, kappa_v=0.0, sin_phi=0.0, curvature=0.0):
     """
     Front and rear normal loads (N).
 
     a_lon > 0 is acceleration (load to the rear). a_lon < 0 is braking.
-    Grade: N uses mg cos(θ) plus m v² κ_v split like static weight.
-    Path gravity g sin(θ) is not a tire force — QSS adds it to kinematics.
+    Grade: N uses mg cos(θ)cos(φ) plus m v² κ_v and m v² κ sin(φ) split
+    like static weight. Path gravity g sin(θ) is not a tire force — QSS
+    adds it to kinematics. Bank does not add path gravity.
     """
     w = vehicle.weight_dist_front
     if w < 0.05:
@@ -85,8 +105,11 @@ def axle_loads(vehicle, v, a_lon=0.0, rho=RHO_AIR_SEA_LEVEL,
     if isinstance(v, np.ndarray) and v.ndim > 0:
         a_lon = np.asarray(a_lon, dtype=float)
         cos_theta, kappa_v = _broadcast_grade(cos_theta, kappa_v, v)
-        n_static = vehicle.mass * G * cos_theta
-        n_vert = vehicle.mass * v * v * kappa_v
+        sin_phi = _as_like(sin_phi, v)
+        curvature = _as_like(curvature, v)
+        cos_phi = _cos_phi(sin_phi, v)
+        n_static = vehicle.mass * G * cos_theta * cos_phi
+        n_vert = vehicle.mass * v * v * (kappa_v + curvature * sin_phi)
         n_aero = aero_k * v * v
         n_f = w * (n_static + n_vert) + cop * n_aero
         n_r = (1.0 - w) * (n_static + n_vert) + (1.0 - cop) * n_aero
@@ -96,8 +119,11 @@ def axle_loads(vehicle, v, a_lon=0.0, rho=RHO_AIR_SEA_LEVEL,
     v = float(v)
     a_lon = float(a_lon)
     cos_theta, kappa_v = _broadcast_grade(cos_theta, kappa_v, v)
-    n_static = vehicle.mass * G * cos_theta
-    n_vert = vehicle.mass * v * v * kappa_v
+    sin_phi = _as_like(sin_phi, v)
+    curvature = _as_like(curvature, v)
+    cos_phi = _cos_phi(sin_phi, v)
+    n_static = vehicle.mass * G * cos_theta * cos_phi
+    n_vert = vehicle.mass * v * v * (kappa_v + curvature * sin_phi)
     n_aero = aero_k * v * v
     transfer = vehicle.mass * a_lon * h / L
     n_f = w * (n_static + n_vert) + cop * n_aero - transfer
@@ -126,10 +152,11 @@ def _peak_at_load(mu0, n, n_ref, lam, u_max):
 
 
 def axle_peaks(vehicle, tire, v, a_lon=0.0, rho=RHO_AIR_SEA_LEVEL, u_max=1.0,
-               cos_theta=1.0, kappa_v=0.0):
+               cos_theta=1.0, kappa_v=0.0, sin_phi=0.0, curvature=0.0):
     """Per-axle Pacejka peaks Dx, Dy (N) and normal loads at the current load."""
     n_f, n_r = axle_loads(
         vehicle, v, a_lon=a_lon, rho=rho, cos_theta=cos_theta, kappa_v=kappa_v,
+        sin_phi=sin_phi, curvature=curvature,
     )
     nref_f, nref_r = static_axle_refs(vehicle)
     u_max = float(u_max)
@@ -144,21 +171,21 @@ def axle_peaks(vehicle, tire, v, a_lon=0.0, rho=RHO_AIR_SEA_LEVEL, u_max=1.0,
 
 
 def axle_grip(vehicle, tire, v, a_lon=0.0, rho=RHO_AIR_SEA_LEVEL, u_max=1.0,
-              cos_theta=1.0, kappa_v=0.0):
+              cos_theta=1.0, kappa_v=0.0, sin_phi=0.0, curvature=0.0):
     """Per-axle peak lateral force D_y (N) at the current load."""
     _dx_f, dy_f, _dx_r, dy_r, n_f, n_r = axle_peaks(
         vehicle, tire, v, a_lon=a_lon, rho=rho, u_max=u_max,
-        cos_theta=cos_theta, kappa_v=kappa_v,
+        cos_theta=cos_theta, kappa_v=kappa_v, sin_phi=sin_phi, curvature=curvature,
     )
     return dy_f, dy_r, n_f, n_r
 
 
 def grip_force(vehicle, tire, v, rho=RHO_AIR_SEA_LEVEL, u_max=1.0, a_lon=0.0,
-               cos_theta=1.0, kappa_v=0.0):
+               cos_theta=1.0, kappa_v=0.0, sin_phi=0.0, curvature=0.0):
     """Sum of axle D_y (N). Bicycle cornering is limited by the first axle."""
     f_f, f_r, _nf, _nr = axle_grip(
         vehicle, tire, v, a_lon=a_lon, rho=rho, u_max=u_max,
-        cos_theta=cos_theta, kappa_v=kappa_v,
+        cos_theta=cos_theta, kappa_v=kappa_v, sin_phi=sin_phi, curvature=curvature,
     )
     return f_f + f_r
 
@@ -174,12 +201,13 @@ def _driven_fx_cap(vehicle, fx_f, fx_r, f_eng):
 
 
 def _leftover_axles(vehicle, tire, v, a_lon, curvature, rho, u_max,
-                    cos_theta=1.0, kappa_v=0.0):
+                    cos_theta=1.0, kappa_v=0.0, sin_phi=0.0):
     dx_f, dy_f, dx_r, dy_r, _nf, _nr = axle_peaks(
         vehicle, tire, v, a_lon=a_lon, rho=rho, u_max=u_max,
-        cos_theta=cos_theta, kappa_v=kappa_v,
+        cos_theta=cos_theta, kappa_v=kappa_v, sin_phi=sin_phi,
+        curvature=curvature,
     )
-    f_lat = vehicle.mass * v * v * abs(curvature)
+    f_lat = np.abs(vehicle.mass * v * v * curvature - vehicle.mass * G * sin_phi)
     fy_f, fy_r = lateral_axle_forces(vehicle, f_lat)
     return combined_slip_fx(dx_f, fy_f, dy_f), combined_slip_fx(dx_r, fy_r, dy_r)
 
@@ -201,18 +229,21 @@ def _corner_speed_constant_mu(k, vehicle, tire, rho, u_max, cos_theta=1.0,
 
 
 def corner_speed_limit(curvature, vehicle, tire, rho=RHO_AIR_SEA_LEVEL,
-                       u_max=1.0, cos_theta=1.0, kappa_v=0.0, sin_theta=0.0):
+                       u_max=1.0, cos_theta=1.0, kappa_v=0.0, sin_theta=0.0,
+                       sin_phi=0.0):
     """
     Maximum speed (m/s) at which the car can hold a corner of given curvature
     (1/m) at utilization u_max.
 
     Flat: pure lateral, a_x = 0. Bicycle: the slower of the two axles to D_y.
-    With no aero and constant mu both axles saturate at v = sqrt(mu g r).
+    With no aero, constant mu, and φ = 0 both axles saturate at v = sqrt(mu g r).
 
     Grade (a_path = 0): F_x = drag + m g sin(θ) eats the ellipse, and load
-    transfer uses a_lon = g sin(θ). N still includes mg cos(θ) + m v² κ_v.
+    transfer uses a_lon = g sin(θ). N still includes mg cos(θ)cos(φ) + m v² κ_v
+    + m v² κ sin(φ). Lateral demand is |m v² κ − m g sin φ|.
     """
-    k = abs(curvature)
+    k_signed = float(curvature)
+    k = abs(k_signed)
     if k < 1e-9:
         return vehicle.top_speed
 
@@ -220,9 +251,11 @@ def corner_speed_limit(curvature, vehicle, tire, rho=RHO_AIR_SEA_LEVEL,
     cos_theta = float(cos_theta)
     kappa_v = float(kappa_v)
     sin_theta = float(sin_theta)
+    sin_phi = float(sin_phi)
     no_aero = abs(float(vehicle.downforce_coefficient)) < 1e-12
     flat = abs(sin_theta) < 1e-9
-    if flat and no_aero and abs(tire.load_sensitivity) < 1e-12:
+    unbanked = abs(sin_phi) < 1e-9
+    if flat and unbanked and no_aero and abs(tire.load_sensitivity) < 1e-12:
         return _corner_speed_constant_mu(
             k, vehicle, tire, rho, u_max, cos_theta=cos_theta, kappa_v=kappa_v,
         )
@@ -235,9 +268,11 @@ def corner_speed_limit(curvature, vehicle, tire, rho=RHO_AIR_SEA_LEVEL,
         v = np.sqrt(vs)
         dx_f, dy_f, dx_r, dy_r, _nf, _nr = axle_peaks(
             vehicle, tire, v, a_lon=a_lon, rho=rho, u_max=u_max,
-            cos_theta=cos_theta, kappa_v=kappa_v,
+            cos_theta=cos_theta, kappa_v=kappa_v, sin_phi=sin_phi,
+            curvature=k_signed,
         )
-        fy_f, fy_r = lateral_axle_forces(vehicle, m * vs * k)
+        f_lat = abs(m * vs * k_signed - m * G * sin_phi)
+        fy_f, fy_r = lateral_axle_forces(vehicle, f_lat)
         if flat:
             return max(fy_f - dy_f, fy_r - dy_r)
         f_drag = drag_force(vehicle, v, rho=rho)
@@ -270,7 +305,8 @@ def corner_speed_limit(curvature, vehicle, tire, rho=RHO_AIR_SEA_LEVEL,
 
 
 def max_traction_accel(vehicle, tire, v, rho=RHO_AIR_SEA_LEVEL,
-                       curvature=0.0, u_max=1.0, cos_theta=1.0, kappa_v=0.0):
+                       curvature=0.0, u_max=1.0, cos_theta=1.0, kappa_v=0.0,
+                       sin_phi=0.0):
     """Tire+aero forward accel (m/s^2). QSS adds -g sin(θ) along the path."""
     f_eng = max_engine_drive_force(vehicle, v)
     f_drag = drag_force(vehicle, v, rho=rho)
@@ -278,7 +314,7 @@ def max_traction_accel(vehicle, tire, v, rho=RHO_AIR_SEA_LEVEL,
     for _ in range(3):
         fx_f, fx_r = _leftover_axles(
             vehicle, tire, v, a, curvature, rho, u_max,
-            cos_theta=cos_theta, kappa_v=kappa_v,
+            cos_theta=cos_theta, kappa_v=kappa_v, sin_phi=sin_phi,
         )
         f_drive = _driven_fx_cap(vehicle, fx_f, fx_r, f_eng)
         a_new = max(f_drive - f_drag, 0.0) / vehicle.mass
@@ -289,7 +325,8 @@ def max_traction_accel(vehicle, tire, v, rho=RHO_AIR_SEA_LEVEL,
 
 
 def max_braking_decel(vehicle, tire, v, rho=RHO_AIR_SEA_LEVEL,
-                      curvature=0.0, u_max=1.0, cos_theta=1.0, kappa_v=0.0):
+                      curvature=0.0, u_max=1.0, cos_theta=1.0, kappa_v=0.0,
+                      sin_phi=0.0):
     """Tire+aero braking magnitude (m/s^2). QSS adds -g sin(θ) along the path."""
     f_drag = drag_force(vehicle, v, rho=rho)
     bias = float(np.clip(vehicle.brake_bias_front, 0.05, 0.95))
@@ -299,7 +336,7 @@ def max_braking_decel(vehicle, tire, v, rho=RHO_AIR_SEA_LEVEL,
     for _ in range(3):
         fx_f, fx_r = _leftover_axles(
             vehicle, tire, v, -a, curvature, rho, u_max,
-            cos_theta=cos_theta, kappa_v=kappa_v,
+            cos_theta=cos_theta, kappa_v=kappa_v, sin_phi=sin_phi,
         )
         f_brake = min(f_hyd_f, fx_f) + min(f_hyd_r, fx_r)
         a_new = (f_brake + f_drag) / vehicle.mass

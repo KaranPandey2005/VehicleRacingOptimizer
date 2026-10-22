@@ -9,7 +9,7 @@ Phase 10a: optional torque curve, gear ratios, and brake bias. Empty curve
 or ratios are synthesized from max_power / top_speed. Drivetrain (RWD/FWD/AWD)
 now limits which axle can put down drive force.
 
-Still later: banking.
+Still later: a banked bowl / φ(n) so n(s) can pick a high groove.
 """
 
 from __future__ import annotations

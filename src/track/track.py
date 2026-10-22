@@ -5,7 +5,8 @@ A Track holds a dense, arc-length-parameterized centerline (s, x, y, heading,
 curvature) plus a track width, and derives left/right boundaries by offsetting
 the centerline along its normal direction by +/- width/2.
 
-V1 elevation is a centerline height z(s) (same left and right — not banking).
+V1 elevation is a centerline height z(s) (same left and right). Optional
+bank angle φ(s) is roll about the centerline (default 0). Spa has none.
 Wet μ(s,n) is sampled from the weather module at the line offset, not stored
 on the track.
 """
@@ -20,14 +21,16 @@ from src.track.geometry import (
     chicane_circuit_segments, resample_uniform, centerline_from_xy,
 )
 from src.track.elevation import (
-    cosine_hill, official_spa_z, path_segment_lengths_xy, slope_arrays,
+    cosine_hill, cosine_bank, official_spa_z, path_segment_lengths_xy,
+    slope_arrays,
 )
 
 _TRACKS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data", "tracks")
 
 
 class Track:
-    def __init__(self, s, x, y, heading, curvature, width, name="track", z=None):
+    def __init__(self, s, x, y, heading, curvature, width, name="track", z=None,
+                 phi=None):
         self.s = np.asarray(s, dtype=float)
         self.x = np.asarray(x, dtype=float)
         self.y = np.asarray(y, dtype=float)
@@ -40,9 +43,15 @@ class Track:
             self.z = np.zeros(n, dtype=float)
         else:
             self.z = np.asarray(z, dtype=float)
+        if phi is None:
+            self.phi = np.zeros(n, dtype=float)
+        else:
+            self.phi = np.asarray(phi, dtype=float)
         assert (len(self.x) == len(self.y) == len(self.heading)
-                == len(self.curvature) == len(self.z) == n), \
+                == len(self.curvature) == len(self.z) == len(self.phi) == n), \
             "Track arrays must all be the same length"
+        self.sin_phi = np.sin(self.phi)
+        self.cos_phi = np.cos(self.phi)
 
         self._compute_boundaries()
         self._compute_elevation()
@@ -103,7 +112,7 @@ class Track:
         """
         Load a TUM-style centerline CSV: x_m, y_m[, w_tr_right_m, w_tr_left_m[, z_m]].
         If width is None and the file has width columns, uses their mean sum.
-        Optional z_m is height along the centerline (not banking).
+        Optional z_m is height along the centerline. No bank column (φ = 0).
         """
         arr = np.loadtxt(path, delimiter=",", comments="#")
         if arr.ndim != 2 or arr.shape[1] < 2:
@@ -127,7 +136,7 @@ class Track:
         Centerline is the OpenStreetMap-derived, smoothed polyline from the
         TUM FTM racetrack database. Height z(s) is the circuit's published
         altitude vs 7004 m chainage, scaled onto this polyline — not a DEM
-        or laser survey. Not banking.
+        or laser survey. Bank angle φ(s) is zero (no invented camber).
         """
         path = os.path.join(_TRACKS_DIR, "spa.csv")
         track = cls.from_centerline_csv(
@@ -158,13 +167,25 @@ class Track:
         """Return a copy of this layout with a new centerline height z(s)."""
         return Track(
             self.s, self.x, self.y, self.heading, self.curvature, self.width,
-            name=name or self.name, z=z,
+            name=name or self.name, z=z, phi=self.phi,
         )
 
     def with_hill(self, s_center, width, height, name=None):
         """Closed-loop cosine bump (tests / synthetic grade)."""
         z = cosine_hill(self.s, self.length, s_center, width, height)
         return self.with_z(z, name=name)
+
+    def with_phi(self, phi, name=None):
+        """Return a copy with a new bank angle φ(s) in radians."""
+        return Track(
+            self.s, self.x, self.y, self.heading, self.curvature, self.width,
+            name=name or self.name, z=self.z, phi=phi,
+        )
+
+    def with_bank(self, s_center, width, phi_peak, name=None):
+        """Closed-loop cosine bank window (tests / circuits that have camber)."""
+        phi = cosine_bank(self.s, self.length, s_center, width, phi_peak)
+        return self.with_phi(phi, name=name)
 
     @property
     def length(self) -> float:
@@ -211,6 +232,7 @@ class Track:
             "heading": self.heading.tolist(),
             "curvature": self.curvature.tolist(),
             "z": self.z.tolist(),
+            "phi": self.phi.tolist(),
         }
         with open(path, "w") as f:
             json.dump(payload, f)
@@ -221,7 +243,8 @@ class Track:
             payload = json.load(f)
         return cls(payload["s"], payload["x"], payload["y"], payload["heading"],
                     payload["curvature"], payload["width"],
-                    name=payload.get("name", "track"), z=payload.get("z"))
+                    name=payload.get("name", "track"), z=payload.get("z"),
+                    phi=payload.get("phi"))
 
     def __repr__(self):
         return (f"Track('{self.name}', length={self.length:.1f} m, "
