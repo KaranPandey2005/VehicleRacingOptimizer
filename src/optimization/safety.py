@@ -15,7 +15,8 @@ Attack minimizes lap time. Race/Safe trade seconds for lower u and more
 distance from the painted edge.
 
 QSS uses bicycle axle forces (Phase 10b). Tire temperature/wear is a
-lumped post-pass (Phase 10c), not a stint model.
+3-zone flying-lap pass (Phase 10c). A stint is Simulator(n_laps), not
+inside this J.
 """
 
 from dataclasses import dataclass

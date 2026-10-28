@@ -25,7 +25,7 @@
     "center_of_pressure": "fraction of wheelbase from front axle (0-1)",
     "tire_mu": "dry peak lateral mu at N_ref (dimensionless)",
     "pacejka": "axle-equivalent MF: Bx,Cx,Ex,By,Cy,Ey; mu_x peak long mu",
-    "thermal": "lumped axle heat/wear: mass_kg, cp J/(kg·K), temps °C",
+    "thermal": "3-zone axle (surface/carcass/rim): mass_kg split by defaults, μ(T_surface), k_wear stint scale; temps °C",
     "top_speed": "m/s"
   },
   "mass": 690.0,
@@ -69,7 +69,7 @@
   "thermal": {
     "mass_kg": 6.5,
     "cp": 1500.0,
-    "k_heat": 0.22,
+    "k_heat": 0.049,
     "h0": 38.0,
     "hv": 3.2,
     "t_opt_c": 95.0,

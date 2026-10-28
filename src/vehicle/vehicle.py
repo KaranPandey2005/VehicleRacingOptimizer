@@ -57,7 +57,7 @@ class Vehicle:
     tire_mu: float = 1.15            # dry peak lateral mu at N_ref
     # Optional Pacejka shape: Bx,Cx,Ex,By,Cy,Ey, mu_x. Empty → TireModel defaults.
     pacejka: dict = field(default_factory=dict)
-    # Optional lumped thermal/wear. Empty → ThermalModel defaults.
+    # Optional 3-zone thermal/wear. Empty → ThermalModel defaults.
     thermal: dict = field(default_factory=dict)
 
     # Performance caps

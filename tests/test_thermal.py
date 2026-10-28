@@ -79,3 +79,42 @@ def test_attack_wears_more_than_safe():
     assert attack.telemetry["wear_index"] > safe.telemetry["wear_index"]
     assert "t_front" in attack.telemetry
     assert attack.telemetry["peak_t_front_c"] > 0.0
+
+
+def test_surface_peak_above_rim_on_high_u_march():
+    th = ThermalModel()
+    n = 80
+    ds = np.full(n, 5.0)
+    v = np.full(n, 40.0)
+    u = np.full(n, 0.95)
+    load = np.full(n, 8000.0)
+    out = th.integrate(ds, v, u, u, load, load, t_amb_c=20.0,
+                       t0_front_c=30.0, t0_rear_c=30.0, wraps=1)
+    assert out["peak_t_front_c"] > out["peak_t_front_rim_c"]
+    assert out["peak_t_rear_c"] > out["peak_t_rear_rim_c"]
+
+
+def test_n_laps_one_matches_default_run():
+    track = default_track()
+    vehicle = Vehicle()
+    a = Simulator(track, vehicle, mode="attack").run()
+    b = Simulator(track, vehicle, mode="attack", n_laps=1).run()
+    assert np.isclose(a.lap_time, b.lap_time)
+    assert np.isclose(a.telemetry["wear_index"], b.telemetry["wear_index"])
+    assert a.n_laps == 1
+    assert len(a.lap_times) == 1
+
+
+def test_three_lap_attack_last_slower_and_deterministic():
+    track = default_track()
+    vehicle = Vehicle()
+    r1 = Simulator(track, vehicle, mode="attack", n_laps=3).run()
+    r2 = Simulator(track, vehicle, mode="attack", n_laps=3).run()
+    assert len(r1.lap_times) == 3
+    assert r1.lap_times[-1] > r1.lap_times[0]
+    assert r1.telemetry["wear_index"] > Simulator(
+        track, vehicle, mode="attack", n_laps=1,
+    ).run().telemetry["wear_index"]
+    assert np.isclose(r1.lap_time, r2.lap_time)
+    assert np.isclose(r1.telemetry["wear_index"], r2.telemetry["wear_index"])
+    assert np.allclose(r1.lap_times, r2.lap_times)

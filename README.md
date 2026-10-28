@@ -6,8 +6,9 @@ engineering goal of this project is that the result should depend on **which
 car** you simulate, not just the track shape.
 
 > **Status:** Phases 1–8 plus Phase 10a–10c physics (torque/axle split,
-> Pacejka bicycle tires, lumped thermal/wear), centerline elevation z(s),
-> optional bank φ(s) (default 0; Spa has none), and a spatial wet line μ(s,n).
+> Pacejka bicycle tires, 3-zone thermal/wear + optional stint), centerline
+> elevation z(s), optional bank φ(s) (default 0; Spa has none), and a spatial
+> wet line μ(s,n).
 > Nothing here is validated against a real vehicle or track unless explicitly
 > stated — treat all numbers as illustrative engineering-simulation output,
 > not ground truth.
@@ -21,7 +22,7 @@ car** you simulate, not just the track shape.
   brakes, tire grip) loaded from JSON. Drive force comes from a torque curve
   × gears; FWD/RWD/AWD and brake bias use front/rear load transfer.
 - Computes speed-dependent tire grip (axle-equivalent Pacejka peaks on a
-  bicycle, elliptical combined slip, load sensitivity, lumped μ(T) and wear)
+  bicycle, elliptical combined slip, load sensitivity, 3-zone μ(T_surface) and wear)
   and aerodynamic downforce/drag.
 - Solves a vehicle-specific speed profile along a line using the standard
   **quasi-steady-state forward-backward pass**.
@@ -68,7 +69,7 @@ VehicleRacingOptimizer/
 │   │   ├── powertrain.py    # torque curve × gears (Phase 10a)
 │   │   ├── tires.py         # Pacejka MF peaks + ellipse (Phase 10b)
 │   │   ├── bicycle.py       # two-axle yaw split + slip reconstruct
-│   │   ├── thermal.py       # lumped T(s) + wear index (Phase 10c)
+│   │   ├── thermal.py       # 3-zone T(s) + wear / stint μ(W) (Phase 10c)
 │   │   └── aero.py          # drag / downforce (quadratic-in-speed)
 │   ├── weather/
 │   │   ├── weather.py       # dry/damp uniform grip + air density
@@ -137,14 +138,16 @@ saturates first). B, C, E reconstruct slip angle/ratio for telemetry; they
 do not change the QSS speed limit. Coefficients in the vehicle JSON are
 illustrative, not a fitted tire.
 
-**Thermal / wear (Phase 10c)** (`vehicle/thermal.py`): each axle is a lumped
-heat capacity. Sliding/hysteresis heat `k_heat u^2 N v` minus convection
-`(h0 + hv v)(T − T_amb)` is integrated along the solved lap. Grip scales
-with a quadratic window around `T_opt`. Wear is a per-lap index (hotter and
-higher `u` wear faster). Greedy and CasADi score each line guess with that
-two-pass (QSS at track temp → T(s) → QSS with μ(T)), so the racing line is
-not a cold-start μ. Spa + optimized is much slower because of this. Not a
-3-zone carcass or a race stint.
+**Thermal / wear (Phase 10c)** (`vehicle/thermal.py`): each axle is three
+lumps (surface / carcass / rim). Heat `k_heat u^2 N v` lands on the
+**surface** only; conduction couples surface↔carcass↔rim, with convection
+on the surface and the rim. Grip uses **surface** temperature in the same
+quadratic window around `T_opt`. Greedy and CasADi still score **one flying
+lap** with two-pass QSS (`μ(T0)` → T(s) → `μ(T_surface)`), including wet
+`grip_s`. A stint is not inside the NLP: `Simulator(n_laps=N)` freezes that
+line and marches N laps carrying zone temps and wear,
+`μ_wear = clip(1 − W, μ_floor, 1)`. Default `N=1` is today’s flying lap.
+Not a fitted tire and not a 3D carcass mesh. Coefficients are illustrative.
 
 **Elevation** (`track/elevation.py`, `physics/dynamics.py`): the road has a
 height `z(s)` defined on the centerline and used by **every** racing line
@@ -191,9 +194,10 @@ worse. This is not a crash-probability model. Tire temperature is Phase 10c.
 ## Known limitations (intentional, tracked for later phases)
 
 - Tire model is an axle-equivalent Pacejka sine MF on a bicycle, with an
-  elliptical combined-slip envelope, lumped load sensitivity, and a one-lump
-  thermal/wear pass. **Not yet:** compound, camber, inflation, left/right
-  load transfer, or multi-lap stint degradation.
+  elliptical combined-slip envelope, lumped load sensitivity, and a 3-zone
+  thermal/wear pass (surface grip). **Not yet:** a fitted tire, a 3D carcass
+  mesh, compound, camber, inflation, or left/right load transfer. A stint
+  is a frozen-line post-pass (`n_laps`), not part of the racing-line NLP.
 - Elevation is centerline `z(s)` plus optional `φ(s)` (default 0). Not a
   3D bowl / `φ(n)`, so the optimizer cannot pick a high-line. Spa `φ = 0`.
   Heights are published circuit-plan altitudes interpolated between

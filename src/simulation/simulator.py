@@ -8,9 +8,10 @@ Attack is still minimum-time. Race/Safe leave grip and wall margin.
 
 Phase 6 weather: dry/damp scale tire grip uniformly; wet uses a spatial
 μ(s,n) (rubber + puddles in wet_line.py) instead of the 0.65 tire scalar.
-Air density comes from ambient temperature. Phase 10c uses ambient/track
-temp for lumped tire heat. Track z(s) is used by QSS (grade and vertical
-curvature). Optional φ(s) is bank; Spa leaves it at 0.
+Air density comes from ambient temperature. Phase 10c is a 3-zone tire
+(surface grip) on a flying lap; n_laps>1 marches a stint on that frozen
+line. Track z(s) is used by QSS (grade and vertical curvature). Optional
+φ(s) is bank; Spa leaves it at 0.
 """
 
 from dataclasses import dataclass, replace
@@ -53,6 +54,8 @@ class SimulationResult:
     grip_modifier: float = 1.0
     u_max: float = 1.0
     objective: float = 0.0
+    n_laps: int = 1
+    lap_times: tuple = ()
 
     def summary(self) -> str:
         t = self.telemetry
@@ -62,8 +65,10 @@ class SimulationResult:
         return (
             f"--- {self.vehicle_name} on {self.track_name} "
             f"[{self.mode.upper()} / {line_note} / {self.weather.upper()}] ---\n"
-            f"Lap time:        {self.lap_time:6.2f} s\n"
-            f"Objective J:     {self.objective:6.2f} s-eq\n"
+            f"Lap time:        {self.lap_time:6.2f} s"
+            + (f"  (stint {self.n_laps} laps, last)\n" if self.n_laps > 1
+               else "\n")
+            + f"Objective J:     {self.objective:6.2f} s-eq\n"
             f"Max speed:       {t['max_speed_kmh']:6.1f} km/h\n"
             f"Min corner spd:  {t['min_speed']*3.6:6.1f} km/h\n"
             f"Peak accel:      {t['peak_lon_accel_g']:5.2f} g\n"
@@ -82,7 +87,8 @@ class SimulationResult:
 
 class Simulator:
     def __init__(self, track, vehicle, tire: TireModel = None, mode: str = "attack",
-                 line_mode: str = "centerline", weather: Weather = None):
+                 line_mode: str = "centerline", weather: Weather = None,
+                 n_laps: int = 1):
         self.track = track
         self.vehicle = vehicle
         self.tire = tire or TireModel.from_vehicle(vehicle)
@@ -96,6 +102,7 @@ class Simulator:
         # Default stays centerline so existing V1/V3 numbers stay comparable.
         # Use line_mode="optimized" for the Phase 5 CasADi line.
         self.line_mode = line_mode
+        self.n_laps = max(int(n_laps), 1)
 
     def _effective_tire(self) -> TireModel:
         # Dry/damp: uniform weather scale on the tire. Wet: spatial map
@@ -130,20 +137,27 @@ class Simulator:
             line = geometric_racing_line(self.track)
         t_amb = float(self.weather.ambient_temp_c)
         t0 = float(self.weather.track_temp_c)
-        profile, _th = qss_with_thermal(
-            self.track, self.vehicle, tire, self.thermal, line,
-            mode_cfg.u_max, rho, t_amb, t0, grip_s=grip_s,
-        )
-        lap_time = compute_lap_time(profile)
+        wear = 0.0
+        zone_f = zone_r = None
+        lap_times = []
+        profile = None
+        thermal = None
+        metrics = None
+        for k in range(self.n_laps):
+            wraps = 2 if k == 0 else 1
+            profile, thermal = qss_with_thermal(
+                self.track, self.vehicle, tire, self.thermal, line,
+                mode_cfg.u_max, rho, t_amb, t0, grip_s=grip_s,
+                wear=wear, t0_front=zone_f, t0_rear=zone_r, wraps=wraps,
+            )
+            lap_times.append(compute_lap_time(profile))
+            wear += float(thermal["wear_index"])
+            zone_f = thermal["end_front"]
+            zone_r = thermal["end_rear"]
+        lap_time = lap_times[-1]
         telemetry = compute_telemetry(profile)
         metrics = safety_metrics(
             profile, self.track, self.vehicle, tire, rho=rho,
-        )
-        thermal = self.thermal.integrate(
-            profile["ds"], profile["v"],
-            metrics["u_front"], metrics["u_rear"],
-            metrics["n_front"], metrics["n_rear"],
-            t_amb, t0, t0,
         )
         telemetry.update({
             "z": profile.get("z", np.zeros_like(profile["s"])),
@@ -168,11 +182,19 @@ class Simulator:
             "tire_stress": metrics["tire_stress"],
             "t_front": thermal["t_front"],
             "t_rear": thermal["t_rear"],
-            "wear_index": thermal["wear_index"],
+            "t_front_carcass": thermal.get("t_front_carcass"),
+            "t_rear_carcass": thermal.get("t_rear_carcass"),
+            "t_front_rim": thermal.get("t_front_rim"),
+            "t_rear_rim": thermal.get("t_rear_rim"),
+            "wear_index": wear,
             "peak_t_front_c": thermal["peak_t_front_c"],
             "peak_t_rear_c": thermal["peak_t_rear_c"],
             "mean_t_front_c": thermal["mean_t_front_c"],
             "mean_t_rear_c": thermal["mean_t_rear_c"],
+            "peak_t_front_rim_c": thermal.get("peak_t_front_rim_c", 0.0),
+            "peak_t_rear_rim_c": thermal.get("peak_t_rear_rim_c", 0.0),
+            "n_laps": self.n_laps,
+            "lap_times": list(lap_times),
         })
         objective = objective_cost(lap_time, metrics, mode_cfg)
         return SimulationResult(
@@ -188,4 +210,6 @@ class Simulator:
             grip_modifier=_reported_grip(tire, profile),
             u_max=mode_cfg.u_max,
             objective=objective,
+            n_laps=self.n_laps,
+            lap_times=tuple(lap_times),
         )

@@ -9,8 +9,9 @@ CasADi polish whenever CasADi is available.
 
 The centerline is only kept if the solved line is not faster.
 
-Each QSS cost eval is thermally consistent (QSS at T0 → T(s) → QSS with
-μ(T)). That makes Spa optimized slower than a cold-start μ cost.
+Each QSS cost eval is thermally consistent (QSS at T0 → 3-zone T(s) →
+QSS with μ(T_surface)). That makes Spa optimized slower than a cold-start
+μ cost. The NLP is still one flying lap; a stint is Simulator(n_laps).
 """
 
 from __future__ import annotations
@@ -302,7 +303,7 @@ def optimized_racing_line(track, vehicle, tire, safety_factor=1.0,
                           driving_mode=None, thermal=None, t_amb_c=None,
                           t0_c=None, grip_s=None):
     """
-    Racing line under bicycle QSS + lumped μ(T). Attack minimizes lap time;
+    Racing line under bicycle QSS + 3-zone μ(T_surface). Attack minimizes lap time;
     Race/Safe minimize J = w_t*t + w_r*risk + w_s*tire_stress.
 
     grip_s: optional wet μ(s,n) callable/array, resampled for every guess.
